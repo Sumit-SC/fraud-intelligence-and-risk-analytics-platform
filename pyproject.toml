@@ -18,3 +18,8 @@ dependencies = [
     "sqlalchemy>=2.0.45",
     "streamlit>=1.52.2",
 ]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
+]
