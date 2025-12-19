@@ -105,24 +105,66 @@ behavioral_features AS (
     FROM decline_features df
 ),
 
+-- Deduplicate merchants per card: one row per (card_id_clean, merchant_id_clean)
+-- Use MIN(txn_ts) as the first occurrence timestamp for each merchant
+distinct_merchant_first_seen AS (
+    SELECT
+        bf.card_id_clean,
+        bf.merchant_id_clean,
+        MIN(bf.txn_ts) AS first_seen_ts
+    FROM behavioral_features bf
+    WHERE bf.card_id_clean IS NOT NULL
+      AND bf.merchant_id_clean IS NOT NULL
+      AND bf.txn_ts IS NOT NULL
+    GROUP BY bf.card_id_clean, bf.merchant_id_clean
+),
+
+-- Count distinct merchants in 24h window using window function on deduplicated set
+-- COUNT(*) counts distinct merchants (one row per merchant) in the 24h window
+merchant_counts AS (
+    SELECT
+        dmfs.card_id_clean,
+        dmfs.first_seen_ts AS txn_ts,
+        COUNT(*) OVER (
+            PARTITION BY dmfs.card_id_clean
+            ORDER BY dmfs.first_seen_ts
+            RANGE BETWEEN INTERVAL 24 HOUR PRECEDING AND CURRENT ROW
+        ) AS distinct_merchants_last_24h
+    FROM distinct_merchant_first_seen dmfs
+),
+
+-- For each transaction, get the distinct merchant count at that timestamp
+-- Use the count from the most recent merchant_counts row <= transaction timestamp
+transaction_merchant_counts AS (
+    SELECT
+        bf.card_id_clean,
+        bf.txn_ts,
+        COALESCE(MAX(mc.distinct_merchants_last_24h), 0) AS distinct_merchants_last_24h
+    FROM behavioral_features bf
+    LEFT JOIN merchant_counts mc
+        ON mc.card_id_clean = bf.card_id_clean
+       AND mc.txn_ts <= bf.txn_ts
+    WHERE bf.txn_ts IS NOT NULL
+    GROUP BY bf.card_id_clean, bf.txn_ts
+),
+
 -- Add merchant exposure features
+-- Join back to get distinct merchant count for each transaction
 merchant_features AS (
     SELECT
         bf.*,
         
         -- distinct_merchants_last_24h: count of distinct merchants by same card in last 24 hours
-        -- NULL if txn_ts is NULL
-        -- Note: MySQL 8.0+ supports COUNT(DISTINCT ...) in window functions
+        -- NULL if txn_ts is NULL, otherwise get count from transaction_merchant_counts
         CASE
             WHEN bf.txn_ts IS NULL THEN NULL
-            ELSE COUNT(DISTINCT bf.merchant_id_clean) OVER (
-                PARTITION BY bf.card_id_clean
-                ORDER BY bf.txn_ts
-                RANGE BETWEEN INTERVAL 24 HOUR PRECEDING AND CURRENT ROW
-            )
+            ELSE tmc.distinct_merchants_last_24h
         END AS distinct_merchants_last_24h
         
     FROM behavioral_features bf
+    LEFT JOIN transaction_merchant_counts tmc
+        ON bf.card_id_clean = tmc.card_id_clean
+       AND bf.txn_ts = tmc.txn_ts
 )
 
 -- Final projection: all columns from stg_transactions_enriched + features
