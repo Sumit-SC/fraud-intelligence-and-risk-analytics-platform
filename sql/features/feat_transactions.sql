@@ -133,38 +133,30 @@ merchant_counts AS (
     FROM distinct_merchant_first_seen dmfs
 ),
 
--- For each transaction, get the distinct merchant count at that timestamp
--- Use the count from the most recent merchant_counts row <= transaction timestamp
-transaction_merchant_counts AS (
-    SELECT
-        bf.card_id_clean,
-        bf.txn_ts,
-        COALESCE(MAX(mc.distinct_merchants_last_24h), 0) AS distinct_merchants_last_24h
-    FROM behavioral_features bf
-    LEFT JOIN merchant_counts mc
-        ON mc.card_id_clean = bf.card_id_clean
-       AND mc.txn_ts <= bf.txn_ts
-    WHERE bf.txn_ts IS NOT NULL
-    GROUP BY bf.card_id_clean, bf.txn_ts
-),
-
 -- Add merchant exposure features
--- Join back to get distinct merchant count for each transaction
+-- Use merchant_counts CTE but join more efficiently
+-- For each transaction, get the count from merchant_counts at the closest timestamp <= transaction timestamp
 merchant_features AS (
     SELECT
         bf.*,
         
         -- distinct_merchants_last_24h: count of distinct merchants by same card in last 24 hours
-        -- NULL if txn_ts is NULL, otherwise get count from transaction_merchant_counts
+        -- NULL if txn_ts is NULL
+        -- Use subquery to get the latest merchant count <= transaction timestamp
         CASE
             WHEN bf.txn_ts IS NULL THEN NULL
-            ELSE tmc.distinct_merchants_last_24h
+            ELSE (
+                SELECT mc.distinct_merchants_last_24h
+                FROM merchant_counts mc
+                WHERE mc.card_id_clean = bf.card_id_clean
+                  AND mc.txn_ts <= bf.txn_ts
+                  AND mc.txn_ts >= DATE_SUB(bf.txn_ts, INTERVAL 24 HOUR)
+                ORDER BY mc.txn_ts DESC
+                LIMIT 1
+            )
         END AS distinct_merchants_last_24h
         
     FROM behavioral_features bf
-    LEFT JOIN transaction_merchant_counts tmc
-        ON bf.card_id_clean = tmc.card_id_clean
-       AND bf.txn_ts = tmc.txn_ts
 )
 
 -- Final projection: all columns from stg_transactions_enriched + features
