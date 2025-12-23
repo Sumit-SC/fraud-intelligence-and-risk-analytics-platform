@@ -190,8 +190,20 @@ def export_bi_data(
     print(f"Non-fraud rows: {(bi_df['is_fraud'] == 0).sum():,} ({(bi_df['is_fraud'] == 0).mean()*100:.2f}%)")
     print(f"Columns exported: {len(columns)}")
     print("=" * 60)
+    
+    # Compact tabular preview to verify structure in the console
+    print("\nData Preview (first 2 rows):")
+    print("-" * 60)
+    with pd.option_context(
+        "display.max_columns", None,
+        "display.width", 120,
+        "display.max_colwidth", 30,
+    ):
+        print(bi_df.head(2))
+    print("-" * 60)
 
 
 if __name__ == "__main__":
     export_bi_data()
+    print("\nExport complete!")
 
