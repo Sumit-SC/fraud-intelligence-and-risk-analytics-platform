@@ -16,15 +16,27 @@ from app.risk_scoring import score_transactions, _load_models
 from app.utils import apply_filters
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def _load_cached_data():
-    """Cache data loading (separate from filtering)."""
+    """Cache data loading with 1 hour TTL to reduce memory usage."""
     try:
         return load_transaction_data()
     except Exception as e:
-        # Return empty DataFrame on error instead of crashing
         print(f"Error loading data: {e}")
         return pd.DataFrame()
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _get_filter_options_cached(df_hash):
+    """Cache filter options calculation."""
+    df_full = _load_cached_data()
+    if df_full.empty:
+        return {
+            "merchant_risk_tiers": [],
+            "channels": [],
+            "countries": []
+        }
+    return get_filter_options(df_full)
 
 
 def get_filtered_data(skip_scoring=False):
@@ -74,9 +86,9 @@ def get_filtered_data(skip_scoring=False):
             "is_high_risk_merchant", "is_emulator_device"
         ]
         available_features = [col for col in feature_columns if col in df_full.columns]
-        models_exist = _load_models(available_features) is not None
         
-        max_initial_score = 5000
+        # Limit scoring to prevent resource exhaustion on free tier
+        max_initial_score = 3000
         try:
             if len(df_filtered) > max_initial_score:
                 df_to_score = df_filtered.head(max_initial_score).copy()
@@ -107,12 +119,8 @@ def get_filtered_data(skip_scoring=False):
 
 
 def setup_sidebar_filters():
-    """
-    Setup sidebar filters and store in session state.
-    Must be called from the main page.
-    """
-    # Load data
-    df_full = load_transaction_data()
+    """Setup sidebar filters using cached data."""
+    df_full = _load_cached_data()
     
     if df_full.empty:
         st.sidebar.error("⚠️ No data available")
@@ -140,8 +148,8 @@ def setup_sidebar_filters():
         date_start = None
         date_end = None
     
-    # Get filter options
-    filter_options = get_filter_options(df_full)
+    # Get filter options (use cached version)
+    filter_options = _get_filter_options_cached(hash(tuple(df_full.columns)))
     
     # Merchant risk tier filter
     merchant_risk_tier = st.sidebar.selectbox(

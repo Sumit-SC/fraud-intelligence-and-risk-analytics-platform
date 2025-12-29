@@ -78,8 +78,13 @@ st.markdown("**Visualization & Exploration Dashboard for Fraud Intelligence & Ri
 # Sidebar Filters
 st.sidebar.header("🔧 Filters")
 
-# Load data for filter options
-df_full = load_transaction_data()
+# Load data with caching
+@st.cache_data(show_spinner=False, ttl=3600)
+def _load_data_cached():
+    """Cache data loading with 1 hour TTL."""
+    return load_transaction_data()
+
+df_full = _load_data_cached()
 
 if df_full.empty:
     st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first to generate the BI export CSV.")

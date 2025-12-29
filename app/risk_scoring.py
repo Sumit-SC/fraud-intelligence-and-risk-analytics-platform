@@ -10,6 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import shap
+import streamlit as st
 
 # Initialize SHAP explainer (will be set after model training)
 _shap_explainer = None
@@ -218,33 +219,22 @@ def _save_models(lr_model, rf_model, scaler, feature_names):
         print(f"Warning: Could not save models: {e}")
 
 
-def _load_models(expected_features):
-    """
-    Load saved models from disk if they exist and match expected features.
-    
-    Args:
-        expected_features: List of feature names expected by the models
-        
-    Returns:
-        Tuple of (lr_model, rf_model, scaler) if models exist and match, else None
-    """
+@st.cache_resource
+def _load_models_cached(expected_features_tuple):
+    """Cached model loading - models are expensive to load, cache them."""
+    expected_features = list(expected_features_tuple)
     try:
-        # Check if all model files exist
         if not all([LR_MODEL_PATH.exists(), RF_MODEL_PATH.exists(), 
                    SCALER_PATH.exists(), MODEL_METADATA_PATH.exists()]):
             return None
         
-        # Load metadata to check feature compatibility
         with open(MODEL_METADATA_PATH, 'rb') as f:
             metadata = pickle.load(f)
         
-        # Check if features match
         saved_features = metadata.get('feature_names', [])
         if set(saved_features) != set(expected_features):
-            # Features don't match - models need retraining
             return None
         
-        # Load models
         with open(LR_MODEL_PATH, 'rb') as f:
             lr_model = pickle.load(f)
         
@@ -260,6 +250,11 @@ def _load_models(expected_features):
         # If loading fails, return None to trigger retraining
         print(f"Warning: Could not load models: {e}")
         return None
+
+
+def _load_models(expected_features):
+    """Load models using cached function (wrapper for compatibility)."""
+    return _load_models_cached(tuple(sorted(expected_features)))
 
 
 def score_transactions(df: pd.DataFrame) -> pd.DataFrame:

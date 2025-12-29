@@ -39,8 +39,13 @@ st.set_page_config(
 st.title("📊 Interactive Analytics Dashboard")
 st.markdown("**Dynamic visualizations, reports, and Power BI integration**")
 
-# Load data
-df_full = load_transaction_data()
+# Load data with caching
+@st.cache_data(show_spinner=False, ttl=3600)
+def _load_data_cached():
+    """Cache data loading with 1 hour TTL."""
+    return load_transaction_data()
+
+df_full = _load_data_cached()
 
 if df_full.empty:
     st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first.")
@@ -48,6 +53,31 @@ if df_full.empty:
 
 # Sidebar filters (same as main page)
 st.sidebar.header("🔧 Filters")
+
+# Data chunk selector for charting performance
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Chart Data Limit")
+max_data_points = len(df_full)
+chunk_options = {
+    "10K": 10000,
+    "100K": 100000,
+    "200K": 200000,
+    "400K": 400000,
+    "All Data": max_data_points
+}
+
+# Filter out options larger than available data
+available_chunks = {k: v for k, v in chunk_options.items() if v <= max_data_points}
+if max_data_points > 400000:
+    available_chunks["All Data"] = max_data_points
+
+selected_chunk_label = st.sidebar.selectbox(
+    "Max data points for charts",
+    options=list(available_chunks.keys()),
+    index=min(2, len(available_chunks) - 1),  # Default to 100K or closest available
+    help="Limit data points used for charting to improve performance. Filters are applied first, then sampling."
+)
+chart_data_limit = available_chunks[selected_chunk_label]
 
 # Date range filter
 if "txn_date" in df_full.columns and not df_full["txn_date"].isna().all():
@@ -100,6 +130,33 @@ fraud_filter = st.sidebar.selectbox(
     key="dashboard_fraud"
 )
 
+# Data chunk selector for charting performance
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Chart Data Limit")
+max_data_points = len(df_full)
+chunk_options = {
+    "10K": 10000,
+    "100K": 100000,
+    "200K": 200000,
+    "400K": 400000,
+    "All Data": max_data_points
+}
+
+# Filter out options larger than available data
+available_chunks = {k: v for k, v in chunk_options.items() if v <= max_data_points}
+if max_data_points > 400000:
+    available_chunks["All Data"] = max_data_points
+elif "All Data" not in available_chunks:
+    available_chunks["All Data"] = max_data_points
+
+selected_chunk_label = st.sidebar.selectbox(
+    "Max data points for charts",
+    options=list(available_chunks.keys()),
+    index=min(2, len(available_chunks) - 1),
+    help="Limit data points used for charting to improve performance. Filters are applied first, then sampling."
+)
+chart_data_limit = available_chunks[selected_chunk_label]
+
 # Apply filters
 from utils import apply_filters
 df_filtered = apply_filters(
@@ -115,6 +172,13 @@ df_filtered = apply_filters(
 # Score transactions
 if not df_filtered.empty:
     df_filtered = score_transactions(df_filtered)
+
+# Apply data chunk limit for charting (sample if needed)
+if len(df_filtered) > chart_data_limit:
+    df_chart = df_filtered.sample(n=chart_data_limit, random_state=42).copy()
+    st.info(f"📊 Using {chart_data_limit:,} randomly sampled data points (from {len(df_filtered):,} filtered) for charting to improve performance.")
+else:
+    df_chart = df_filtered.copy()
 
 # Sidebar metrics
 st.sidebar.markdown("---")
@@ -155,11 +219,10 @@ with tab1:
         with col2:
             # Parameter selector based on available columns
             # Use robust dtype checks so numeric columns are reliably detected across platforms
-            available_numeric = [col for col in df_filtered.columns if is_numeric_dtype(df_filtered[col])]
+            available_numeric = [col for col in df_chart.columns if is_numeric_dtype(df_chart[col])]
             available_categorical = [
-                col
-                for col in df_filtered.columns
-                if str(df_filtered[col].dtype) in ['object', 'bool', 'category']
+                col for col in df_chart.columns
+                if str(df_chart[col].dtype) in ['object', 'bool', 'category']
             ]
             
             # Initialize default values
@@ -220,7 +283,7 @@ with tab1:
         if chart_type == "Bar Chart" and x_param != "None" and y_param != "None":
             st.subheader(f"📊 Bar Chart: {y_param} by {x_param}")
             if color_param != "None":
-                chart_data = df_filtered.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                chart_data = df_chart.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
                 fig = px.bar(
                     chart_data,
                     x=x_param,
@@ -230,7 +293,7 @@ with tab1:
                     labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
                 )
             else:
-                chart_data = df_filtered.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                chart_data = df_chart.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
                 fig = px.bar(
                     chart_data,
                     x=x_param,
@@ -243,7 +306,7 @@ with tab1:
         elif chart_type == "Column Chart" and x_param != "None" and y_param != "None":
             st.subheader(f"📊 Column Chart: {y_param} by {x_param}")
             if color_param != "None":
-                chart_data = df_filtered.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                chart_data = df_chart.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
                 fig = px.bar(
                     chart_data,
                     x=x_param,
@@ -254,7 +317,7 @@ with tab1:
                     labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
                 )
             else:
-                chart_data = df_filtered.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                chart_data = df_chart.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
                 fig = px.bar(
                     chart_data,
                     x=x_param,
@@ -267,10 +330,10 @@ with tab1:
         
         elif chart_type == "Line Chart" and x_param != "None" and y_param != "None":
             st.subheader(f"📈 Line Chart: {y_param} over {x_param}")
-            if x_param == "txn_date" and "txn_date" in df_filtered.columns:
+            if x_param == "txn_date" and "txn_date" in df_chart.columns:
                 # Time series aggregation
                 if color_param != "None":
-                    daily_data = df_filtered.groupby([df_filtered["txn_date"].dt.date, color_param])[y_param].mean().reset_index()
+                    daily_data = df_chart.groupby([df_chart["txn_date"].dt.date, color_param])[y_param].mean().reset_index()
                     daily_data.columns = ["Date", color_param, y_param]
                     fig = px.line(
                         daily_data,
@@ -281,7 +344,7 @@ with tab1:
                         markers=True
                     )
                 else:
-                    daily_data = df_filtered.groupby(df_filtered["txn_date"].dt.date)[y_param].mean().reset_index()
+                    daily_data = df_chart.groupby(df_chart["txn_date"].dt.date)[y_param].mean().reset_index()
                     daily_data.columns = ["Date", y_param]
                     fig = px.line(
                         daily_data,
@@ -293,7 +356,7 @@ with tab1:
             else:
                 if color_param != "None":
                     fig = px.line(
-                        df_filtered.groupby([x_param, color_param])[y_param].mean().reset_index(),
+                        df_chart.groupby([x_param, color_param])[y_param].mean().reset_index(),
                         x=x_param,
                         y=y_param,
                         color=color_param,
@@ -302,7 +365,7 @@ with tab1:
                     )
                 else:
                     fig = px.line(
-                        df_filtered.groupby(x_param)[y_param].mean().reset_index(),
+                        df_chart.groupby(x_param)[y_param].mean().reset_index(),
                         x=x_param,
                         y=y_param,
                         title=f"{y_param} by {x_param}",
@@ -312,11 +375,11 @@ with tab1:
         
         elif chart_type == "Scatter Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"🔍 Scatter Plot: {y_param} vs {x_param}")
-            scatter_df = df_filtered[[x_param, y_param]].copy()
+            scatter_df = df_chart[[x_param, y_param]].copy()
             if color_param != "None":
-                scatter_df[color_param] = df_filtered[color_param]
+                scatter_df[color_param] = df_chart[color_param]
             if size_param != "None":
-                scatter_df[size_param] = df_filtered[size_param]
+                scatter_df[size_param] = df_chart[size_param]
                 fig = px.scatter(
                     scatter_df,
                     x=x_param,
@@ -340,7 +403,7 @@ with tab1:
         elif chart_type == "Box Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"📦 Box Plot: {y_param} by {x_param}")
             fig = px.box(
-                df_filtered,
+                df_chart,
                 x=x_param,
                 y=y_param,
                 color=color_param if color_param != "None" else None,
@@ -352,7 +415,7 @@ with tab1:
         elif chart_type == "Histogram" and x_param != "None":
             st.subheader(f"📊 Histogram: Distribution of {x_param}")
             fig = px.histogram(
-                df_filtered,
+                df_chart,
                 x=x_param,
                 color=color_param if color_param != "None" else None,
                 nbins=50,
@@ -364,7 +427,7 @@ with tab1:
         elif chart_type == "Violin Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"🎻 Violin Plot: {y_param} by {x_param}")
             fig = px.violin(
-                df_filtered,
+                df_chart,
                 x=x_param,
                 y=y_param,
                 color=color_param if color_param != "None" else None,
@@ -375,7 +438,7 @@ with tab1:
         
         elif chart_type == "Heatmap" and x_param != "None" and y_param != "None" and color_param != "None":
             st.subheader(f"🔥 Heatmap: {color_param} by {x_param} and {y_param}")
-            pivot_data = df_filtered.groupby([x_param, y_param])[color_param].mean().reset_index()
+            pivot_data = df_chart.groupby([x_param, y_param])[color_param].mean().reset_index()
             pivot_table = pivot_data.pivot(index=y_param, columns=x_param, values=color_param)
             fig = px.imshow(
                 pivot_table,
@@ -404,9 +467,9 @@ with tab1:
         
         with col_a:
             # Transaction Velocity Box Plot (from notebook)
-            if "txns_last_24h" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+            if "txns_last_24h" in df_chart.columns and "is_fraud" in df_chart.columns:
                 st.markdown("**Transaction Velocity by Fraud Status**")
-                df_plot = df_filtered[["txns_last_24h", "is_fraud"]].copy()
+                df_plot = df_chart[["txns_last_24h", "is_fraud"]].copy()
                 df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
                 # Filter outliers for better visualization
                 df_plot = df_plot[df_plot["txns_last_24h"] <= df_plot["txns_last_24h"].quantile(0.95)]
@@ -421,9 +484,9 @@ with tab1:
         
         with col_b:
             # Amount Deviation Histogram (from notebook)
-            if "amount_vs_card_avg" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+            if "amount_vs_card_avg" in df_chart.columns and "is_fraud" in df_chart.columns:
                 st.markdown("**Amount Deviation Distribution**")
-                df_plot = df_filtered[["amount_vs_card_avg", "is_fraud"]].copy()
+                df_plot = df_chart[["amount_vs_card_avg", "is_fraud"]].copy()
                 df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
                 # Filter outliers
                 df_plot = df_plot[(df_plot["amount_vs_card_avg"] >= 0) & (df_plot["amount_vs_card_avg"] <= 10)]
@@ -443,9 +506,9 @@ with tab1:
         
         with col_c:
             # Risk Score by Fraud Status
-            if "risk_score" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+            if "risk_score" in df_chart.columns and "is_fraud" in df_chart.columns:
                 st.markdown("**Risk Score Distribution by Fraud Status**")
-                df_plot = df_filtered[["risk_score", "is_fraud"]].copy()
+                df_plot = df_chart[["risk_score", "is_fraud"]].copy()
                 df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
                 fig_risk = px.violin(
                     df_plot,
@@ -459,9 +522,9 @@ with tab1:
         
         with col_d:
             # Fraud Rate by Country
-            if "country_std" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+            if "country_std" in df_chart.columns and "is_fraud" in df_chart.columns:
                 st.markdown("**Fraud Rate by Country**")
-                country_fraud = df_filtered.groupby("country_std").agg({
+                country_fraud = df_chart.groupby("country_std").agg({
                     "is_fraud": ["sum", "count"]
                 }).reset_index()
                 country_fraud.columns = ["Country", "Fraud_Count", "Total_Count"]

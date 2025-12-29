@@ -179,19 +179,17 @@ try:
             available_features = [col for col in feature_columns if col in df_filtered.columns]
             models_exist = _load_models(available_features) is not None
             
-            if models_exist:
-                # Models exist - score in background (non-blocking)
-                max_to_score = min(5000, len(df_filtered))
-                df_to_score = df_filtered.head(max_to_score).copy()
-                
-                # Score without blocking the UI
-                df_scored = score_transactions(df_to_score)
-                
-                # Update scored rows
-                if not df_scored.empty and 'risk_score' in df_scored.columns and 'risk_band' in df_scored.columns:
-                    df_filtered.loc[:max_to_score-1, 'risk_score'] = df_scored['risk_score'].values
-                    df_filtered.loc[:max_to_score-1, 'risk_band'] = df_scored['risk_band'].values
-            # If no models, keep placeholder scores (already set above)
+            # Limit scoring to 3000 rows max for free tier
+            max_to_score = min(3000, len(df_filtered))
+            df_to_score = df_filtered.head(max_to_score).copy()
+            
+            # Score without blocking the UI
+            df_scored = score_transactions(df_to_score)
+            
+            # Update scored rows
+            if not df_scored.empty and 'risk_score' in df_scored.columns and 'risk_band' in df_scored.columns:
+                df_filtered.loc[:max_to_score-1, 'risk_score'] = df_scored['risk_score'].values
+                df_filtered.loc[:max_to_score-1, 'risk_band'] = df_scored['risk_band'].values
         except Exception as e:
             # Silent fail - keep placeholder scores, don't block UI
             pass
@@ -371,6 +369,23 @@ else:
         "risk_band": "Risk Band"
     }
     df_table = df_table.rename(columns=column_rename)
+    
+    # Pagination for large tables (free tier optimization)
+    page_size = 1000
+    total_rows = len(df_table)
+    if total_rows > page_size:
+        num_pages = (total_rows + page_size - 1) // page_size
+        page_num = st.number_input(
+            f"Page (1-{num_pages})",
+            min_value=1,
+            max_value=num_pages,
+            value=1,
+            key="transaction_page"
+        )
+        start_idx = (page_num - 1) * page_size
+        end_idx = min(start_idx + page_size, total_rows)
+        df_table = df_table.iloc[start_idx:end_idx]
+        st.info(f"Showing rows {start_idx+1:,}-{end_idx:,} of {total_rows:,} total transactions")
     
     # Transaction Selection & Quick Analysis
     st.markdown("---")
