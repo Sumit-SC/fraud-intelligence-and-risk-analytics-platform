@@ -50,6 +50,18 @@ if 'risk_score' not in df_filtered.columns:
 if 'risk_band' not in df_filtered.columns:
     df_filtered['risk_band'] = 'MEDIUM'
 
+# Pre-load models to ensure SHAP can work (if models exist)
+from app.risk_scoring import _load_models, score_transactions
+feature_columns = [
+    "txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d",
+    "is_high_risk_merchant", "is_emulator_device"
+]
+available_features = [col for col in feature_columns if col in df_filtered.columns]
+models_loaded = _load_models(available_features)
+
+if models_loaded is None:
+    st.info("💡 **Note**: Models not trained yet. Risk explanations will use rule-based analysis. Train models using `notebooks/07_model_training_experimentation.ipynb` for SHAP-based explanations.")
+
 # Allow user to select a transaction
 if "txn_id_clean" in df_filtered.columns:
     transaction_ids = df_filtered["txn_id_clean"].tolist()
@@ -71,12 +83,21 @@ if "txn_id_clean" in df_filtered.columns:
         selected_txn_id = st.selectbox(
             "Select a transaction to view risk explanation:",
             options=transaction_ids[:1000],  # Limit to first 1000 for performance
-            format_func=format_txn_option
+            format_func=format_txn_option,
+            key="risk_explanation_txn_selector"
         )
         
         if selected_txn_id:
             try:
-                selected_row = df_filtered[df_filtered["txn_id_clean"] == selected_txn_id].iloc[0]
+                # Get the selected transaction row
+                selected_row = df_filtered[df_filtered["txn_id_clean"] == selected_txn_id].iloc[0].copy()
+                
+                # Always score this transaction to ensure we have accurate risk score and models loaded
+                with st.spinner("🔄 Calculating risk score and loading models..."):
+                    single_df = pd.DataFrame([selected_row])
+                    scored_df = score_transactions(single_df)
+                    if not scored_df.empty:
+                        selected_row = scored_df.iloc[0]
                 
                 # Display transaction details
                 col1, col2, col3 = st.columns(3)
@@ -108,21 +129,26 @@ if "txn_id_clean" in df_filtered.columns:
                 st.markdown("---")
                 
                 # Display risk explanation
-                st.subheader("Why is this transaction risky?")
+                st.subheader("🔍 Why is this transaction risky?")
                 st.caption("💡 **SHAP-based explanations**: Feature contributions are calculated using SHapley Additive exPlanations, providing mathematically principled feature importance.")
                 
-                # Score this specific transaction if it doesn't have a real score
-                if selected_row.get('risk_score', 0.5) == 0.5:
-                    with st.spinner("Calculating risk score for this transaction..."):
-                        from app.risk_scoring import score_transactions
-                        single_df = pd.DataFrame([selected_row])
-                        scored_df = score_transactions(single_df)
-                        if not scored_df.empty:
-                            selected_row = scored_df.iloc[0]
-                
-                explanations = explain_risk_score(selected_row)
+                # Generate explanations
+                with st.spinner("🔄 Generating risk explanation..."):
+                    try:
+                        explanations = explain_risk_score(selected_row)
+                    except Exception as e:
+                        st.warning(f"⚠️ Error generating explanation: {str(e)}")
+                        st.info("Using fallback explanation...")
+                        # explain_risk_score already has fallback logic, but if it fails completely, show basic info
+                        explanations = [
+                            f"Risk Score: {selected_row.get('risk_score', 0.5)*100:.1f}%",
+                            f"Risk Band: {selected_row.get('risk_band', 'MEDIUM')}"
+                        ]
+                        if selected_row.get('is_fraud', False):
+                            explanations.append("⚠️ This transaction is marked as fraud")
                 
                 if explanations:
+                    st.markdown("#### Risk Factors:")
                     for i, explanation in enumerate(explanations, 1):
                         # Style high-impact explanations
                         if "increases risk" in explanation.lower() and any(x in explanation for x in ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"]):
@@ -130,11 +156,11 @@ if "txn_id_clean" in df_filtered.columns:
                         else:
                             st.markdown(f"{i}. {explanation}")
                 else:
-                    st.info("No risk factors identified for this transaction.")
+                    st.info("ℹ️ No significant risk factors identified for this transaction.")
                 
                 # Display additional context
                 st.markdown("---")
-                st.subheader("Transaction Details")
+                st.subheader("📋 Transaction Details")
                 
                 detail_cols = ["txn_id_clean", "txn_date", "amount", "channel_std", "country_std",
                               "txns_last_24h", "amount_vs_card_avg", "merchant_risk_tier",
@@ -146,12 +172,13 @@ if "txn_id_clean" in df_filtered.columns:
                 
                 st.dataframe(detail_df, use_container_width=True, hide_index=False)
             except Exception as e:
-                st.error(f"Error loading transaction: {str(e)}")
+                st.error(f"❌ Error processing transaction: {str(e)}")
                 st.exception(e)
+                st.info("💡 **Tip**: Try selecting a different transaction or check if models are trained.")
         else:
-            st.info("Please select a transaction to view risk explanation.")
+            st.info("ℹ️ Please select a transaction from the dropdown above to view risk explanation.")
     else:
-        st.info("No transactions available for risk explanation.")
+        st.info("ℹ️ No transactions available for risk explanation.")
 else:
-    st.info("Transaction ID column not available. Risk explanation requires transaction identifiers.")
+    st.info("ℹ️ Transaction ID column not available. Risk explanation requires transaction identifiers.")
 

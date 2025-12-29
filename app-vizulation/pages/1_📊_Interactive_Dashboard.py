@@ -23,6 +23,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from pandas.api.types import is_numeric_dtype
 
 from data_loader import load_transaction_data, get_filter_options
 from utils import format_currency, apply_filters
@@ -153,8 +154,13 @@ with tab1:
         
         with col2:
             # Parameter selector based on available columns
-            available_numeric = [col for col in df_filtered.columns if df_filtered[col].dtype in ['int64', 'float64']]
-            available_categorical = [col for col in df_filtered.columns if df_filtered[col].dtype in ['object', 'bool', 'category']]
+            # Use robust dtype checks so numeric columns are reliably detected across platforms
+            available_numeric = [col for col in df_filtered.columns if is_numeric_dtype(df_filtered[col])]
+            available_categorical = [
+                col
+                for col in df_filtered.columns
+                if str(df_filtered[col].dtype) in ['object', 'bool', 'category']
+            ]
             
             # Initialize default values
             x_param = None
