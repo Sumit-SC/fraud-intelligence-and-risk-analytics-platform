@@ -127,131 +127,350 @@ tab1, tab2, tab3 = st.tabs(["📈 Interactive Charts", "📄 Reports & Presentat
 
 with tab1:
     st.header("📈 Interactive Visualizations")
-    st.markdown("Charts update automatically based on your filter selections")
+    st.markdown("**Select chart type and parameters to explore your data dynamically**")
     
     if df_filtered.empty:
         st.warning("⚠️ No data to display. Adjust your filters.")
     else:
-        # Chart 1: Fraud Rate Over Time
-        st.subheader("📅 Fraud Rate Over Time")
-        if "txn_date" in df_filtered.columns and "is_fraud" in df_filtered.columns:
-            daily_fraud = df_filtered.groupby(df_filtered["txn_date"].dt.date).agg({
-                "is_fraud": ["sum", "count"]
-            }).reset_index()
-            daily_fraud.columns = ["Date", "Fraud_Count", "Total_Count"]
-            daily_fraud["Fraud_Rate"] = (daily_fraud["Fraud_Count"] / daily_fraud["Total_Count"] * 100).round(2)
-            
-            fig1 = px.line(
-                daily_fraud,
-                x="Date",
-                y="Fraud_Rate",
-                title="Daily Fraud Rate (%)",
-                labels={"Fraud_Rate": "Fraud Rate (%)", "Date": "Date"},
-                markers=True
-            )
-            fig1.update_traces(line_color='red', line_width=2)
-            st.plotly_chart(fig1, use_container_width=True)
-        else:
-            st.info("Date or fraud data not available")
+        # Chart type selector
+        col1, col2 = st.columns([1, 2])
         
-        # Chart 2: Risk Band Distribution
-        st.subheader("🎯 Risk Band Distribution")
-        if "risk_band" in df_filtered.columns:
-            risk_dist = df_filtered["risk_band"].value_counts().reset_index()
-            risk_dist.columns = ["Risk_Band", "Count"]
-            risk_dist = risk_dist.sort_values("Count", ascending=False)
-            
-            colors_map = {"HIGH": "red", "MEDIUM": "orange", "LOW": "green"}
-            fig2 = px.bar(
-                risk_dist,
-                x="Risk_Band",
-                y="Count",
-                title="Transaction Count by Risk Band",
-                color="Risk_Band",
-                color_discrete_map=colors_map,
-                labels={"Count": "Number of Transactions", "Risk_Band": "Risk Band"}
+        with col1:
+            chart_type = st.selectbox(
+                "📊 Chart Type",
+                options=[
+                    "Bar Chart",
+                    "Column Chart",
+                    "Line Chart",
+                    "Scatter Plot",
+                    "Box Plot",
+                    "Histogram",
+                    "Violin Plot",
+                    "Heatmap"
+                ],
+                key="chart_type_selector"
             )
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("Risk band data not available")
         
-        # Chart 3: Fraud by Merchant Risk Tier
-        st.subheader("🏪 Fraud by Merchant Risk Tier")
-        if "merchant_risk_tier" in df_filtered.columns and "is_fraud" in df_filtered.columns:
-            merchant_fraud = df_filtered.groupby("merchant_risk_tier").agg({
-                "is_fraud": ["sum", "count"]
-            }).reset_index()
-            merchant_fraud.columns = ["Merchant_Risk_Tier", "Fraud_Count", "Total_Count"]
-            merchant_fraud["Fraud_Rate"] = (merchant_fraud["Fraud_Count"] / merchant_fraud["Total_Count"] * 100).round(2)
-            merchant_fraud = merchant_fraud.sort_values("Fraud_Rate", ascending=False)
+        with col2:
+            # Parameter selector based on available columns
+            available_numeric = [col for col in df_filtered.columns if df_filtered[col].dtype in ['int64', 'float64']]
+            available_categorical = [col for col in df_filtered.columns if df_filtered[col].dtype in ['object', 'bool', 'category']]
             
-            fig3 = px.bar(
-                merchant_fraud,
-                x="Merchant_Risk_Tier",
-                y="Fraud_Rate",
-                title="Fraud Rate by Merchant Risk Tier (%)",
-                labels={"Fraud_Rate": "Fraud Rate (%)", "Merchant_Risk_Tier": "Merchant Risk Tier"},
-                color="Merchant_Risk_Tier",
-                color_discrete_map={"HIGH": "red", "MEDIUM": "orange", "LOW": "green"}
-            )
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("Merchant risk tier or fraud data not available")
+            # Initialize default values
+            x_param = None
+            y_param = None
+            color_param = None
+            size_param = None
+            
+            if chart_type in ["Bar Chart", "Column Chart", "Box Plot", "Violin Plot"]:
+                x_param = st.selectbox(
+                    "X-Axis / Category",
+                    options=available_categorical + ["None"],
+                    key="x_param_selector",
+                    help="Select categorical variable for grouping"
+                )
+                y_param = st.selectbox(
+                    "Y-Axis / Value",
+                    options=available_numeric + ["None"],
+                    key="y_param_selector",
+                    help="Select numeric variable to measure"
+                )
+                color_param = st.selectbox(
+                    "Color By (Optional)",
+                    options=["None"] + available_categorical,
+                    key="color_param_selector"
+                )
+            elif chart_type == "Scatter Plot":
+                x_param = st.selectbox("X-Axis", options=available_numeric + ["None"], key="scatter_x")
+                y_param = st.selectbox("Y-Axis", options=available_numeric + ["None"], key="scatter_y")
+                color_param = st.selectbox("Color By", options=["None"] + available_categorical, key="scatter_color")
+                size_param = st.selectbox("Size By (Optional)", options=["None"] + available_numeric, key="scatter_size")
+            elif chart_type == "Line Chart":
+                x_param = st.selectbox("X-Axis (Time)", options=["txn_date"] + available_numeric + ["None"], key="line_x")
+                y_param = st.selectbox("Y-Axis", options=available_numeric + ["None"], key="line_y")
+                color_param = st.selectbox("Color By", options=["None"] + available_categorical, key="line_color")
+            elif chart_type == "Histogram":
+                x_param = st.selectbox("Variable", options=available_numeric + ["None"], key="hist_x")
+                color_param = st.selectbox("Color By (Optional)", options=["None"] + available_categorical, key="hist_color")
+                y_param = None
+            elif chart_type == "Heatmap":
+                x_param = st.selectbox("X-Axis", options=available_categorical + ["None"], key="heat_x")
+                y_param = st.selectbox("Y-Axis", options=available_categorical + ["None"], key="heat_y")
+                color_param = st.selectbox("Value", options=available_numeric + ["None"], key="heat_value")
         
-        # Chart 4: Transaction Amount Distribution
-        st.subheader("💰 Transaction Amount Distribution")
-        if "amount" in df_filtered.columns:
-            fig4 = px.histogram(
+        st.markdown("---")
+        
+        # Generate chart based on selection
+        # Ensure parameters are defined
+        if x_param is None:
+            x_param = "None"
+        if y_param is None:
+            y_param = "None"
+        if color_param is None:
+            color_param = "None"
+        if size_param is None:
+            size_param = "None"
+            
+        if chart_type == "Bar Chart" and x_param != "None" and y_param != "None":
+            st.subheader(f"📊 Bar Chart: {y_param} by {x_param}")
+            if color_param != "None":
+                chart_data = df_filtered.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                fig = px.bar(
+                    chart_data,
+                    x=x_param,
+                    y='mean' if 'mean' in chart_data.columns else y_param,
+                    color=color_param,
+                    title=f"{y_param} by {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
+                )
+            else:
+                chart_data = df_filtered.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                fig = px.bar(
+                    chart_data,
+                    x=x_param,
+                    y='mean' if 'mean' in chart_data.columns else y_param,
+                    title=f"{y_param} by {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
+                )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Column Chart" and x_param != "None" and y_param != "None":
+            st.subheader(f"📊 Column Chart: {y_param} by {x_param}")
+            if color_param != "None":
+                chart_data = df_filtered.groupby([x_param, color_param])[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                fig = px.bar(
+                    chart_data,
+                    x=x_param,
+                    y='mean' if 'mean' in chart_data.columns else y_param,
+                    color=color_param,
+                    orientation='v',
+                    title=f"{y_param} by {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
+                )
+            else:
+                chart_data = df_filtered.groupby(x_param)[y_param].agg(['mean', 'sum', 'count']).reset_index()
+                fig = px.bar(
+                    chart_data,
+                    x=x_param,
+                    y='mean' if 'mean' in chart_data.columns else y_param,
+                    orientation='v',
+                    title=f"{y_param} by {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
+                )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Line Chart" and x_param != "None" and y_param != "None":
+            st.subheader(f"📈 Line Chart: {y_param} over {x_param}")
+            if x_param == "txn_date" and "txn_date" in df_filtered.columns:
+                # Time series aggregation
+                if color_param != "None":
+                    daily_data = df_filtered.groupby([df_filtered["txn_date"].dt.date, color_param])[y_param].mean().reset_index()
+                    daily_data.columns = ["Date", color_param, y_param]
+                    fig = px.line(
+                        daily_data,
+                        x="Date",
+                        y=y_param,
+                        color=color_param,
+                        title=f"{y_param} Over Time",
+                        markers=True
+                    )
+                else:
+                    daily_data = df_filtered.groupby(df_filtered["txn_date"].dt.date)[y_param].mean().reset_index()
+                    daily_data.columns = ["Date", y_param]
+                    fig = px.line(
+                        daily_data,
+                        x="Date",
+                        y=y_param,
+                        title=f"{y_param} Over Time",
+                        markers=True
+                    )
+            else:
+                if color_param != "None":
+                    fig = px.line(
+                        df_filtered.groupby([x_param, color_param])[y_param].mean().reset_index(),
+                        x=x_param,
+                        y=y_param,
+                        color=color_param,
+                        title=f"{y_param} by {x_param}",
+                        markers=True
+                    )
+                else:
+                    fig = px.line(
+                        df_filtered.groupby(x_param)[y_param].mean().reset_index(),
+                        x=x_param,
+                        y=y_param,
+                        title=f"{y_param} by {x_param}",
+                        markers=True
+                    )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Scatter Plot" and x_param != "None" and y_param != "None":
+            st.subheader(f"🔍 Scatter Plot: {y_param} vs {x_param}")
+            scatter_df = df_filtered[[x_param, y_param]].copy()
+            if color_param != "None":
+                scatter_df[color_param] = df_filtered[color_param]
+            if size_param != "None":
+                scatter_df[size_param] = df_filtered[size_param]
+                fig = px.scatter(
+                    scatter_df,
+                    x=x_param,
+                    y=y_param,
+                    color=color_param if color_param != "None" else None,
+                    size=size_param if size_param != "None" else None,
+                    title=f"{y_param} vs {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
+                )
+            else:
+                fig = px.scatter(
+                    scatter_df,
+                    x=x_param,
+                    y=y_param,
+                    color=color_param if color_param != "None" else None,
+                    title=f"{y_param} vs {x_param}",
+                    labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
+                )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Box Plot" and x_param != "None" and y_param != "None":
+            st.subheader(f"📦 Box Plot: {y_param} by {x_param}")
+            fig = px.box(
                 df_filtered,
-                x="amount",
-                nbins=50,
-                title="Distribution of Transaction Amounts",
-                labels={"amount": "Transaction Amount ($)", "count": "Frequency"},
-                color_discrete_sequence=['blue']
+                x=x_param,
+                y=y_param,
+                color=color_param if color_param != "None" else None,
+                title=f"Distribution of {y_param} by {x_param}",
+                labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
             )
-            fig4.update_layout(showlegend=False)
-            st.plotly_chart(fig4, use_container_width=True)
-        else:
-            st.info("Amount data not available")
+            st.plotly_chart(fig, use_container_width=True)
         
-        # Chart 5: Fraud by Channel
-        st.subheader("📱 Fraud by Channel")
-        if "channel_std" in df_filtered.columns and "is_fraud" in df_filtered.columns:
-            channel_fraud = df_filtered.groupby("channel_std").agg({
-                "is_fraud": ["sum", "count"]
-            }).reset_index()
-            channel_fraud.columns = ["Channel", "Fraud_Count", "Total_Count"]
-            channel_fraud["Fraud_Rate"] = (channel_fraud["Fraud_Count"] / channel_fraud["Total_Count"] * 100).round(2)
-            channel_fraud = channel_fraud.sort_values("Fraud_Rate", ascending=False)
-            
-            fig5 = px.bar(
-                channel_fraud,
-                x="Channel",
-                y="Fraud_Rate",
-                title="Fraud Rate by Channel (%)",
-                labels={"Fraud_Rate": "Fraud Rate (%)", "Channel": "Channel"},
-                color="Fraud_Rate",
-                color_continuous_scale="Reds"
-            )
-            st.plotly_chart(fig5, use_container_width=True)
-        else:
-            st.info("Channel or fraud data not available")
-        
-        # Chart 6: Risk Score Distribution
-        st.subheader("📊 Risk Score Distribution")
-        if "risk_score" in df_filtered.columns:
-            fig6 = px.histogram(
+        elif chart_type == "Histogram" and x_param != "None":
+            st.subheader(f"📊 Histogram: Distribution of {x_param}")
+            fig = px.histogram(
                 df_filtered,
-                x="risk_score",
+                x=x_param,
+                color=color_param if color_param != "None" else None,
                 nbins=50,
-                title="Distribution of ML-lite Risk Scores",
-                labels={"risk_score": "Risk Score (0-1)", "count": "Frequency"},
-                color_discrete_sequence=['purple']
+                title=f"Distribution of {x_param}",
+                labels={x_param: x_param.replace('_', ' ').title()}
             )
-            fig6.update_layout(showlegend=False)
-            st.plotly_chart(fig6, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Violin Plot" and x_param != "None" and y_param != "None":
+            st.subheader(f"🎻 Violin Plot: {y_param} by {x_param}")
+            fig = px.violin(
+                df_filtered,
+                x=x_param,
+                y=y_param,
+                color=color_param if color_param != "None" else None,
+                title=f"Distribution of {y_param} by {x_param}",
+                labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif chart_type == "Heatmap" and x_param != "None" and y_param != "None" and color_param != "None":
+            st.subheader(f"🔥 Heatmap: {color_param} by {x_param} and {y_param}")
+            pivot_data = df_filtered.groupby([x_param, y_param])[color_param].mean().reset_index()
+            pivot_table = pivot_data.pivot(index=y_param, columns=x_param, values=color_param)
+            fig = px.imshow(
+                pivot_table,
+                title=f"{color_param} Heatmap",
+                labels=dict(x=x_param.replace('_', ' ').title(), y=y_param.replace('_', ' ').title(), color=color_param.replace('_', ' ').title()),
+                color_continuous_scale="RdYlBu_r"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
         else:
-            st.info("Risk score data not available")
+            st.info("💡 Select chart type and parameters above to generate visualizations")
+            
+            # Show available columns for reference
+            with st.expander("📋 Available Columns", expanded=False):
+                st.markdown("**Numeric Columns:**")
+                st.code(", ".join(available_numeric[:10]) + ("..." if len(available_numeric) > 10 else ""))
+                st.markdown("**Categorical Columns:**")
+                st.code(", ".join(available_categorical[:10]) + ("..." if len(available_categorical) > 10 else ""))
+        
+        # Pre-defined insightful charts section
+        st.markdown("---")
+        st.subheader("🎯 Pre-defined Analytics Charts")
+        st.markdown("**Key insights from fraud analytics**")
+        
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            # Transaction Velocity Box Plot (from notebook)
+            if "txns_last_24h" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+                st.markdown("**Transaction Velocity by Fraud Status**")
+                df_plot = df_filtered[["txns_last_24h", "is_fraud"]].copy()
+                df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
+                # Filter outliers for better visualization
+                df_plot = df_plot[df_plot["txns_last_24h"] <= df_plot["txns_last_24h"].quantile(0.95)]
+                fig_vel = px.box(
+                    df_plot,
+                    x="Transaction_Type",
+                    y="txns_last_24h",
+                    title="Transaction Velocity Comparison",
+                    labels={"txns_last_24h": "Transactions Last 24h", "Transaction_Type": "Transaction Type"}
+                )
+                st.plotly_chart(fig_vel, use_container_width=True)
+        
+        with col_b:
+            # Amount Deviation Histogram (from notebook)
+            if "amount_vs_card_avg" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+                st.markdown("**Amount Deviation Distribution**")
+                df_plot = df_filtered[["amount_vs_card_avg", "is_fraud"]].copy()
+                df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
+                # Filter outliers
+                df_plot = df_plot[(df_plot["amount_vs_card_avg"] >= 0) & (df_plot["amount_vs_card_avg"] <= 10)]
+                fig_amt = px.histogram(
+                    df_plot,
+                    x="amount_vs_card_avg",
+                    color="Transaction_Type",
+                    nbins=50,
+                    title="Amount vs Card Average Distribution",
+                    labels={"amount_vs_card_avg": "Amount / Card Average", "count": "Frequency"},
+                    barmode="overlay",
+                    opacity=0.6
+                )
+                st.plotly_chart(fig_amt, use_container_width=True)
+        
+        col_c, col_d = st.columns(2)
+        
+        with col_c:
+            # Risk Score by Fraud Status
+            if "risk_score" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+                st.markdown("**Risk Score Distribution by Fraud Status**")
+                df_plot = df_filtered[["risk_score", "is_fraud"]].copy()
+                df_plot["Transaction_Type"] = df_plot["is_fraud"].map({True: "Fraud", False: "Legitimate"})
+                fig_risk = px.violin(
+                    df_plot,
+                    x="Transaction_Type",
+                    y="risk_score",
+                    color="Transaction_Type",
+                    title="Risk Score Distribution",
+                    labels={"risk_score": "Risk Score", "Transaction_Type": "Transaction Type"}
+                )
+                st.plotly_chart(fig_risk, use_container_width=True)
+        
+        with col_d:
+            # Fraud Rate by Country
+            if "country_std" in df_filtered.columns and "is_fraud" in df_filtered.columns:
+                st.markdown("**Fraud Rate by Country**")
+                country_fraud = df_filtered.groupby("country_std").agg({
+                    "is_fraud": ["sum", "count"]
+                }).reset_index()
+                country_fraud.columns = ["Country", "Fraud_Count", "Total_Count"]
+                country_fraud["Fraud_Rate"] = (country_fraud["Fraud_Count"] / country_fraud["Total_Count"] * 100).round(2)
+                country_fraud = country_fraud.sort_values("Fraud_Rate", ascending=False).head(10)
+                fig_country = px.bar(
+                    country_fraud,
+                    x="Country",
+                    y="Fraud_Rate",
+                    title="Top 10 Countries by Fraud Rate (%)",
+                    labels={"Fraud_Rate": "Fraud Rate (%)", "Country": "Country"},
+                    color="Fraud_Rate",
+                    color_continuous_scale="Reds"
+                )
+                st.plotly_chart(fig_country, use_container_width=True)
 
 with tab2:
     st.header("📄 Reports & Presentations")

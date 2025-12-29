@@ -238,8 +238,13 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
             feature_array = np.array([feature_values])
             feature_scaled = _scaler.transform(feature_array)
             
-            # Calculate SHAP values
-            shap_values = _shap_explainer.shap_values(feature_scaled[0])
+            # Calculate SHAP values with error handling
+            # Use try-except to catch any SHAP computation errors
+            try:
+                shap_values = _shap_explainer.shap_values(feature_scaled[0])
+            except Exception as shap_error:
+                # If SHAP fails, fall through to coefficient-based explanation
+                raise shap_error
             
             # Handle SHAP output format (LinearExplainer returns array)
             if isinstance(shap_values, np.ndarray):
@@ -258,24 +263,30 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
                     direction = "increases" if shap_val > 0 else "decreases"
                     impact = abs(shap_val) * 100  # Convert to percentage-like impact
                     
-                    # Format feature-specific explanations
+                    # Format feature-specific explanations with statistical context
                     if feat == "txns_last_24h":
+                        # Add context: typical fraud patterns show >10 txns/24h
+                        context = " (High velocity - typical fraud pattern)" if value > 10 else " (Normal velocity)"
                         explanations.append(
                             f"**Transaction Velocity** (SHAP: {shap_val:+.3f}): "
                             f"{direction} fraud probability by {impact:.1f}% - "
-                            f"{value:.0f} transactions in last 24h"
+                            f"{value:.0f} transactions in last 24h{context}"
                         )
                     elif feat == "declined_txns_last_24h":
+                        # Add context: >2 declines suggests card testing
+                        context = " (Card testing pattern detected)" if value > 2 else " (Normal decline rate)"
                         explanations.append(
                             f"**Decline History** (SHAP: {shap_val:+.3f}): "
                             f"{direction} fraud probability by {impact:.1f}% - "
-                            f"{value:.0f} declined transactions"
+                            f"{value:.0f} declined transactions{context}"
                         )
                     elif feat == "merchant_fraud_rate_30d":
+                        # Add context: >10% is high risk merchant
+                        context = " (High-risk merchant)" if value > 0.1 else " (Normal merchant risk)"
                         explanations.append(
                             f"**Merchant Fraud Rate** (SHAP: {shap_val:+.3f}): "
                             f"{direction} fraud probability by {impact:.1f}% - "
-                            f"{value*100:.1f}% historical fraud rate"
+                            f"{value*100:.1f}% historical fraud rate{context}"
                         )
                     elif feat == "is_high_risk_merchant":
                         status = "Yes" if value else "No"
@@ -302,10 +313,13 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
                 
         except Exception as e:
             # Fallback to coefficients if SHAP fails
+            # Log the error but continue to coefficient-based explanation
             explanations = []
             # Continue to coefficient-based explanation below
+            pass
     
     # Fallback: Use coefficients if SHAP not available or failed
+    # Only use coefficients if SHAP didn't produce explanations
     if not explanations and _model is not None and _feature_names is not None:
         # Get feature values for this transaction
         feature_values = {}
@@ -336,20 +350,23 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
         
         # Generate explanations from all contributing features
         # Sort by absolute coefficient to show most important first
+        # Always show at least top 3 features, even if coefficients are small
+        shown_count = 0
         for feat, coef, value in feature_importance:
             # Show all features - lower threshold to ensure we show something
             # Even small coefficients can be meaningful when combined
-            if abs(coef) > 0.0001:  # Very low threshold to show all features
+            if abs(coef) > 0.0001 or shown_count < 3:  # Show top 3 or significant features
                 direction = "increases" if coef > 0 else "decreases"
                 # Show coefficient magnitude as relative importance
                 coef_magnitude = abs(coef)
                 importance_level = "high" if coef_magnitude > 0.5 else ("medium" if coef_magnitude > 0.2 else "low")
                 
-                # Format feature-specific explanations
+                # Format feature-specific explanations with statistical context
                 if feat == "txns_last_24h":
+                    context = " (High velocity - typical fraud pattern)" if value > 10 else " (Normal velocity)"
                     explanations.append(
                         f"**Transaction Velocity** ({importance_level} impact): "
-                        f"{direction} fraud risk - {value:.0f} transactions in last 24h "
+                        f"{direction} fraud risk - {value:.0f} transactions in last 24h{context} "
                         f"[Coefficient: {coef:.3f}]"
                     )
                 elif feat == "declined_txns_last_24h":
@@ -384,6 +401,7 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
                         f"**{feat.replace('_', ' ').title()}** ({importance_level} impact): "
                         f"{direction} fraud risk - Value: {value} [Coefficient: {coef:.3f}]"
                     )
+                shown_count += 1
         
         # Always show at least the top 3 features, even if coefficients are small
         if not explanations and len(feature_importance) > 0:
@@ -394,21 +412,24 @@ def explain_risk_score(row: pd.Series, use_shap: bool = True) -> list[str]:
                 importance_level = "high" if coef_magnitude > 0.5 else ("medium" if coef_magnitude > 0.2 else "low")
                 
                 if feat == "txns_last_24h":
+                    context = " (High velocity - typical fraud pattern)" if value > 10 else " (Normal velocity)"
                     explanations.append(
                         f"**Transaction Velocity** ({importance_level} impact): "
-                        f"{direction} fraud risk - {value:.0f} transactions in last 24h "
+                        f"{direction} fraud risk - {value:.0f} transactions in last 24h{context} "
                         f"[Coefficient: {coef:.3f}]"
                     )
                 elif feat == "declined_txns_last_24h":
+                    context = " (Card testing pattern detected)" if value > 2 else " (Normal decline rate)"
                     explanations.append(
                         f"**Decline History** ({importance_level} impact): "
-                        f"{direction} fraud risk - {value:.0f} declined transactions "
+                        f"{direction} fraud risk - {value:.0f} declined transactions{context} "
                         f"[Coefficient: {coef:.3f}]"
                     )
                 elif feat == "merchant_fraud_rate_30d":
+                    context = " (High-risk merchant)" if value > 0.1 else " (Normal merchant risk)"
                     explanations.append(
                         f"**Merchant Fraud Rate** ({importance_level} impact): "
-                        f"{direction} fraud risk - {value*100:.1f}% historical fraud rate "
+                        f"{direction} fraud risk - {value*100:.1f}% historical fraud rate{context} "
                         f"[Coefficient: {coef:.3f}]"
                     )
                 elif feat == "is_high_risk_merchant":

@@ -525,8 +525,12 @@ else:
         )
         
         if selected_txn_id:
-            # Get the selected row - make sure we're using the right dataframe
-            selected_row = df_display[df_display["txn_id_clean"] == selected_txn_id].iloc[0]
+            try:
+                # Get the selected row - make sure we're using the right dataframe
+                selected_row = df_display[df_display["txn_id_clean"] == selected_txn_id].iloc[0]
+            except (IndexError, KeyError) as e:
+                st.error(f"❌ **Error:** Could not find transaction {selected_txn_id} in filtered data.")
+                st.stop()
             
             # Display risk explanation panel
             st.markdown("### 📊 Transaction Details")
@@ -563,14 +567,16 @@ else:
             from risk_scoring import get_model_info
             model_info = get_model_info()
             
-            # Debug: Show what we're working with
-            with st.expander("🔍 Debug Info", expanded=False):
-                st.write(f"Selected Transaction: {selected_txn_id}")
-                st.write(f"Model Status: {model_info.get('status')}")
-                st.write(f"Model Features: {model_info.get('features', [])}")
-                st.write(f"Selected Row Columns: {list(selected_row.index)[:10]}")
-                st.write(f"Has risk_score: {'risk_score' in selected_row.index}")
-                st.write(f"Has risk_band: {'risk_band' in selected_row.index}")
+            # Debug: Show what we're working with (always visible for troubleshooting)
+            with st.expander("🔍 Debug Info", expanded=True):
+                st.write(f"**Selected Transaction:** {selected_txn_id}")
+                st.write(f"**Model Status:** {model_info.get('status')}")
+                st.write(f"**Model Features:** {model_info.get('features', [])}")
+                st.write(f"**Selected Row Columns:** {list(selected_row.index)[:10]}")
+                st.write(f"**Has risk_score:** {'risk_score' in selected_row.index}")
+                st.write(f"**Has risk_band:** {'risk_band' in selected_row.index}")
+                st.write(f"**Risk Score Value:** {selected_row.get('risk_score', 'N/A')}")
+                st.write(f"**Risk Band Value:** {selected_row.get('risk_band', 'N/A')}")
             
             if model_info.get("status") == "Model trained":
                 st.success("🤖 **ML-lite Model Active**: Using Logistic Regression coefficients for explanations")
@@ -585,18 +591,32 @@ else:
                     })
                 
                 # Get explanations (try SHAP first, fallback to coefficients)
+                explanations = []
+                shap_data = None
                 try:
-                    explanations = explain_risk_score(selected_row, use_shap=True)
+                    # Use spinner to show progress
+                    with st.spinner("🔄 Generating risk explanation..."):
+                        explanations = explain_risk_score(selected_row, use_shap=True)
                     
                     # Get SHAP values for visualization
                     from risk_scoring import get_shap_values, SHAP_AVAILABLE
-                    shap_data = get_shap_values(selected_row)
+                    try:
+                        shap_data = get_shap_values(selected_row)
+                    except Exception as shap_err:
+                        st.warning(f"⚠️ SHAP visualization unavailable: {str(shap_err)}")
+                        shap_data = None
                     
-                    # Debug: Log what we got
-                    st.write(f"🔍 Debug: Got {len(explanations) if explanations else 0} explanations")
+                    # Debug: Always show what we got
+                    if explanations is None:
+                        explanations = []
+                    st.write(f"**Debug:** Generated {len(explanations)} explanations")
                     
                     # Always display explanations if they exist
-                    if explanations and len(explanations) > 0:
+                    # Ensure explanations is a list
+                    if explanations is None:
+                        explanations = []
+                    
+                    if len(explanations) > 0:
                         if shap_data:
                             st.markdown("**🤖 ML-lite Model Analysis - SHAP-based Feature Contributions:**")
                             st.success("✅ Using SHAP (SHapley Additive exPlanations) for mathematically principled explanations")
@@ -655,15 +675,55 @@ else:
                                      "Positive coefficients increase risk, negative coefficients decrease risk.")
                     else:
                         # Fallback: Show basic info even if no explanations
-                        st.warning("⚠️ No detailed explanations generated. This might indicate:")
-                        st.write("- Model coefficients are very small")
-                        st.write("- Feature values are missing")
-                        st.write(f"- Debug: Explanation count = {len(explanations) if explanations else 0}")
+                        st.warning("⚠️ **No detailed explanations generated.** This might indicate:")
+                        st.write("1. Model coefficients are very small")
+                        st.write("2. Feature values are missing or invalid")
+                        st.write("3. Transaction has no significant risk factors")
+                        st.write(f"**Debug:** Explanation count = {len(explanations) if explanations else 0}")
                         
-                        if "risk_score" in selected_row.index:
-                            st.metric("Risk Score", f"{selected_row['risk_score']*100:.1f}%")
-                        if "risk_band" in selected_row.index:
-                            st.metric("Risk Band", selected_row['risk_band'])
+                        st.markdown("---")
+                        st.markdown("### 📊 Basic Transaction Information")
+                        
+                        # Always show risk score and band
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            if "risk_score" in selected_row.index:
+                                risk_score = selected_row.get("risk_score", 0)
+                                st.metric("Risk Score", f"{risk_score*100:.1f}%")
+                            else:
+                                st.metric("Risk Score", "N/A")
+                        with col2:
+                            if "risk_band" in selected_row.index:
+                                risk_band = selected_row.get("risk_band", "UNKNOWN")
+                                band_emoji = "🔴" if risk_band == "HIGH" else ("🟡" if risk_band == "MEDIUM" else "🟢")
+                                st.metric("Risk Band", f"{band_emoji} {risk_band}")
+                            else:
+                                st.metric("Risk Band", "N/A")
+                        with col3:
+                            is_fraud = selected_row.get("is_fraud", False)
+                            fraud_status = "✅ Fraud" if is_fraud else "❌ Legitimate"
+                            st.metric("Fraud Status", fraud_status)
+                        
+                        # Show feature values
+                        st.markdown("**📋 Feature Values:**")
+                        feature_cols = ["txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d", 
+                                       "is_high_risk_merchant", "is_emulator_device"]
+                        feature_data = {}
+                        for col in feature_cols:
+                            if col in selected_row.index:
+                                val = selected_row.get(col, "N/A")
+                                if pd.notna(val):
+                                    if isinstance(val, bool):
+                                        feature_data[col] = "Yes" if val else "No"
+                                    elif col == "merchant_fraud_rate_30d":
+                                        feature_data[col] = f"{val*100:.2f}%"
+                                    else:
+                                        feature_data[col] = val
+                                else:
+                                    feature_data[col] = "N/A"
+                            else:
+                                feature_data[col] = "Not Available"
+                        st.json(feature_data)
                 except Exception as e:
                     st.error(f"❌ Error generating explanations: {str(e)}")
                     import traceback
@@ -678,20 +738,47 @@ else:
                         st.metric("Risk Band", selected_row['risk_band'])
             else:
                 st.warning("⚠️ **Model Not Trained**: Using fallback rule-based explanations")
+                explanations = []
                 try:
-                    explanations = explain_risk_score(selected_row, use_shap=False)
+                    with st.spinner("🔄 Generating rule-based explanations..."):
+                        explanations = explain_risk_score(selected_row, use_shap=False)
+                    
+                    st.write(f"**Debug:** Generated {len(explanations) if explanations else 0} rule-based explanations")
                     
                     if explanations and len(explanations) > 0:
-                        st.markdown("**Risk Factors (Rule-based):**")
+                        st.markdown("**🔍 Risk Factors (Rule-based Analysis):**")
                         for i, explanation in enumerate(explanations, 1):
                             st.markdown(f"{i}. {explanation}")
                     else:
-                        st.info("No significant risk factors identified for this transaction.")
+                        st.info("ℹ️ **No significant risk factors identified** for this transaction using rule-based analysis.")
+                        
+                        # Show feature values even if no explanations
+                        st.markdown("**📋 Transaction Features:**")
+                        feature_cols = ["txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d", 
+                                       "is_high_risk_merchant", "is_emulator_device"]
+                        for feat in feature_cols:
+                            if feat in selected_row.index:
+                                val = selected_row[feat]
+                                if pd.notna(val):
+                                    if isinstance(val, bool):
+                                        val_display = "Yes" if val else "No"
+                                    elif feat == "merchant_fraud_rate_30d":
+                                        val_display = f"{val*100:.2f}%"
+                                    else:
+                                        val_display = f"{val:.2f}" if isinstance(val, float) else str(val)
+                                    st.write(f"- **{feat.replace('_', ' ').title()}:** {val_display}")
                 except Exception as e:
-                    st.error(f"Error generating explanations: {str(e)}")
+                    st.error(f"❌ **Error generating explanations:** {str(e)}")
                     import traceback
-                    with st.expander("Error Details"):
+                    with st.expander("🔍 Error Details", expanded=True):
                         st.code(traceback.format_exc())
+                    
+                    # Always show something even on error
+                    st.markdown("**📋 Showing basic transaction information:**")
+                    if "risk_score" in selected_row.index:
+                        st.metric("Risk Score", f"{selected_row.get('risk_score', 0)*100:.1f}%")
+                    if "risk_band" in selected_row.index:
+                        st.metric("Risk Band", selected_row.get('risk_band', 'UNKNOWN'))
                 
                 # Show feature values for this transaction
                 st.markdown("---")
