@@ -86,13 +86,38 @@ def _generate_risk_assessment(row: pd.Series) -> str:
     
     return assessment
 
-# Page configuration
-st.set_page_config(
-    page_title="Transaction Overview",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Page configuration (skip if running from unified router)
+if 'unified_app' not in st.session_state or not st.session_state.get('unified_app', False):
+    st.set_page_config(
+        page_title="Transaction Overview",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+# Hide Streamlit footer and branding
+hide_streamlit_style = """
+    <style>
+    footer {visibility: hidden;}
+    footer:after {
+        content:'';
+        visibility: hidden;
+    }
+    .stDeployButton {display:none;}
+    #stDecoration {display:none;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Add mode switching controls in a compact sidebar dropdown when running from unified router
+if st.session_state.get('unified_app', False):
+    with st.sidebar.expander("🔄 Mode Navigation", expanded=False):
+        if st.button("🚀 Switch to Basic Mode"):
+            st.session_state.app_mode = "basic"
+            st.rerun()
+        if st.button("🏠 Back to Mode Selector"):
+            st.session_state.app_mode = None
+            st.rerun()
 
 # Title
 st.title("📊 Transaction Overview")
@@ -235,7 +260,7 @@ else:
                 stats_data.append({"Metric": "Date Range", "Value": f"{df_filtered['txn_date'].min().date()} to {df_filtered['txn_date'].max().date()}"})
             
             stats_df = pd.DataFrame(stats_data)
-            st.dataframe(stats_df, use_container_width=True, hide_index=True)
+            st.dataframe(stats_df, width='stretch', hide_index=True)
         
         with stats_col2:
             st.markdown("**Fraud Statistics**")
@@ -259,7 +284,7 @@ else:
                     fraud_stats.append({"Metric": "Countries", "Value": f"{df_filtered['country_std'].nunique()}"})
                 
                 fraud_stats_df = pd.DataFrame(fraud_stats)
-                st.dataframe(fraud_stats_df, use_container_width=True, hide_index=True)
+                st.dataframe(fraud_stats_df, width='stretch', hide_index=True)
             else:
                 st.info("Fraud information not available")
     
@@ -485,7 +510,7 @@ else:
         
         st.dataframe(
             df_table_display,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             height=400
         )
@@ -551,7 +576,7 @@ else:
         risk_dist_df["Percentage"] = risk_dist_df["Percentage"].round(1)
         
         st.bar_chart(risk_dist_df.set_index("Risk Band")["Count"])
-        st.dataframe(risk_dist_df, use_container_width=True, hide_index=True)
+        st.dataframe(risk_dist_df, width='stretch', hide_index=True)
     else:
         st.info("Risk scoring metrics not available. Train models to see risk distribution.")
     

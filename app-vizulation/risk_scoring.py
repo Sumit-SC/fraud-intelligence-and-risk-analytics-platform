@@ -1,15 +1,4 @@
-"""
-Risk scoring logic for transactions.
-
-Stage 8B: ML-lite fraud risk scoring using Logistic Regression.
-Focus: Explainable risk ranking for investigators (not prediction accuracy).
-
-Why Logistic Regression?
-- Interpretable: Coefficients show feature importance
-- Fast: Quick training and scoring
-- Business-friendly: Easy to explain to stakeholders
-- No hyperparameter tuning needed for this use case
-"""
+"""Risk scoring logic for transactions using Logistic Regression."""
 
 import pandas as pd
 import numpy as np
@@ -33,34 +22,15 @@ _shap_explainer = None  # SHAP explainer for detailed explanations
 
 
 def score_transactions(df: pd.DataFrame) -> pd.DataFrame:
+    """Score transactions using Logistic Regression model.
+    
+    Returns DataFrame with risk_score (0-1) and risk_band (LOW/MEDIUM/HIGH).
     """
-    Score transactions using ML-lite Logistic Regression model.
-    
-    Stage 8B: ML-lite implementation for explainable risk ranking.
-    
-    Approach:
-    1. Select interpretable features
-    2. Handle missing values safely
-    3. Train LogisticRegression model (if labels available)
-    4. Generate risk_score using predict_proba
-    5. Create risk_band categories
-    
-    Args:
-        df: DataFrame with transaction features and optional is_fraud label
-        
-    Returns:
-        DataFrame with added columns:
-        - risk_score: Fraud probability (0-1)
-        - risk_band: LOW (<0.3), MEDIUM (0.3-0.6), HIGH (≥0.6)
-    """
-    # Declare global variables at the start (before any use)
     global _model, _scaler, _feature_names
     
     if df.empty:
-        # Return empty DataFrame with required columns
         df_result = df.copy()
         if len(df_result) == 0:
-            # Create empty Series with correct dtypes
             df_result["risk_score"] = pd.Series(dtype=float)
             df_result["risk_band"] = pd.Series(dtype=str)
         else:
@@ -68,93 +38,65 @@ def score_transactions(df: pd.DataFrame) -> pd.DataFrame:
             df_result["risk_band"] = "LOW"
         return df_result
     
-    # Create a copy to avoid modifying original
     df_scored = df.copy()
     
-    # Step 1: Select features (business-interpretable signals)
     feature_columns = [
-        "txns_last_24h",              # Velocity: Fraudsters act quickly, testing cards
-        "declined_txns_last_24h",     # Decline history: Testing stolen cards
-        "merchant_fraud_rate_30d",    # Merchant risk: Some merchants attract fraud
-        "is_high_risk_merchant",      # Merchant tier: Categorical risk indicator
-        "is_emulator_device"          # Device type: Emulators often used for fraud
+        "txns_last_24h",
+        "declined_txns_last_24h",
+        "merchant_fraud_rate_30d",
+        "is_high_risk_merchant",
+        "is_emulator_device"
     ]
     
-    # Check which features are available
     available_features = [col for col in feature_columns if col in df_scored.columns]
     
     if not available_features:
-        # Fallback: Use placeholder scoring if no features available
         df_scored["risk_score"] = 0.5
         df_scored["risk_band"] = "MEDIUM"
         return df_scored
     
-    # Step 2: Prepare features and label
     X = df_scored[available_features].copy()
     y = df_scored["is_fraud"] if "is_fraud" in df_scored.columns else None
     
-    # Step 3: Handle missing values safely
-    # Numeric features: fill with median (or 0 if all NaN)
-    # Boolean features: fill with False (most common case)
     for col in X.columns:
         if X[col].dtype in ['int64', 'float64']:
             median_val = X[col].median() if X[col].notna().any() else 0
             X[col] = X[col].fillna(median_val)
         elif X[col].dtype == 'bool':
-            X[col] = X[col].fillna(False).astype(int)  # Convert bool to int for model
+            X[col] = X[col].fillna(False).astype(int)
         else:
             X[col] = X[col].fillna(0)
     
-    # Step 4: Train model if labels available and model doesn't exist
-    # Only train if model hasn't been trained yet (to avoid retraining on filtered data)
     if _model is None and y is not None and y.notna().any() and y.sum() > 0:
-        # Filter to rows with valid labels
         valid_mask = y.notna()
         X_train = X[valid_mask]
         y_train = y[valid_mask].astype(int)
         
-        # Only train if we have fraud cases
         if len(X_train) > 0 and y_train.sum() > 0:
-            # Standardize features for Logistic Regression
-            # Why StandardScaler? Logistic Regression benefits from normalized features
             _scaler = StandardScaler()
             X_train_scaled = _scaler.fit_transform(X_train)
             
-            # Train Logistic Regression model
-            # Why Logistic Regression?
-            # - Interpretable coefficients (feature importance)
-            # - Fast training and prediction
-            # - Probabilistic output (perfect for risk scoring)
-            # - No hyperparameter tuning needed for this use case
             _model = LogisticRegression(
-                max_iter=1000,           # Enough iterations for convergence
-                random_state=42,         # Reproducibility
-                class_weight='balanced'  # Handle class imbalance (fraud is rare)
+                max_iter=1000,
+                random_state=42,
+                class_weight='balanced'
             )
             _model.fit(X_train_scaled, y_train)
             _feature_names = available_features
             
-            # Initialize SHAP explainer for Logistic Regression
-            # Use LinearExplainer for Logistic Regression (faster and exact)
             if SHAP_AVAILABLE:
                 try:
-                    # Create background dataset for SHAP (use more data for better explanations)
-                    # Use up to 1000 rows for background (more representative of the data distribution)
                     background_size = min(1000, len(X_train_scaled))
                     background_data = X_train_scaled[:background_size]
                     _shap_explainer = shap.LinearExplainer(_model, background_data)
-                except Exception as e:
-                    # If SHAP fails, continue without it
+                except Exception:
                     _shap_explainer = None
             else:
                 _shap_explainer = None
     
-    # Step 5: Generate risk scores
     if _model is not None and _scaler is not None and _feature_names is not None:
-        # Ensure we're using the same features the model was trained on
         X_score = df_scored[_feature_names].copy()
         
-        # Handle missing values (same as training)
         for col in X_score.columns:
             if X_score[col].dtype in ['int64', 'float64']:
                 median_val = X_score[col].median() if X_score[col].notna().any() else 0
@@ -164,24 +106,13 @@ def score_transactions(df: pd.DataFrame) -> pd.DataFrame:
             else:
                 X_score[col] = X_score[col].fillna(0)
         
-        # Scale features and predict probabilities
         X_score_scaled = _scaler.transform(X_score)
-        # predict_proba returns [prob_class_0, prob_class_1]
-        # We want prob_class_1 (fraud probability)
         risk_scores = _model.predict_proba(X_score_scaled)[:, 1]
         df_scored["risk_score"] = risk_scores
     else:
-        # No model available - use placeholder scores
-        # This happens if:
-        # - No labels in data
-        # - No fraud cases in training data
-        # - Model training failed
         df_scored["risk_score"] = 0.5
     
-    # Step 6: Create risk bands (business-interpretable categories)
-    # LOW: <30% probability - likely legitimate, low priority
-    # MEDIUM: 30-60% - needs review, moderate priority
-    # HIGH: ≥60% - strong fraud signal, high priority
+    # Risk bands: LOW <0.3, MEDIUM 0.3-0.6, HIGH >=0.6
     df_scored["risk_band"] = df_scored["risk_score"].apply(
         lambda x: "HIGH" if x >= 0.6 else ("MEDIUM" if x >= 0.3 else "LOW")
     )

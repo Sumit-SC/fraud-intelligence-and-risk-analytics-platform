@@ -238,7 +238,7 @@ with tab1:
                     title=f"{y_param} by {x_param}",
                     labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
                 )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Column Chart" and x_param != "None" and y_param != "None":
             st.subheader(f"📊 Column Chart: {y_param} by {x_param}")
@@ -263,7 +263,7 @@ with tab1:
                     title=f"{y_param} by {x_param}",
                     labels={x_param: x_param.replace('_', ' ').title(), 'mean': y_param.replace('_', ' ').title()}
                 )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Line Chart" and x_param != "None" and y_param != "None":
             st.subheader(f"📈 Line Chart: {y_param} over {x_param}")
@@ -308,7 +308,7 @@ with tab1:
                         title=f"{y_param} by {x_param}",
                         markers=True
                     )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Scatter Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"🔍 Scatter Plot: {y_param} vs {x_param}")
@@ -335,7 +335,7 @@ with tab1:
                     title=f"{y_param} vs {x_param}",
                     labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
                 )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Box Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"📦 Box Plot: {y_param} by {x_param}")
@@ -347,7 +347,7 @@ with tab1:
                 title=f"Distribution of {y_param} by {x_param}",
                 labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Histogram" and x_param != "None":
             st.subheader(f"📊 Histogram: Distribution of {x_param}")
@@ -359,7 +359,7 @@ with tab1:
                 title=f"Distribution of {x_param}",
                 labels={x_param: x_param.replace('_', ' ').title()}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Violin Plot" and x_param != "None" and y_param != "None":
             st.subheader(f"🎻 Violin Plot: {y_param} by {x_param}")
@@ -371,7 +371,7 @@ with tab1:
                 title=f"Distribution of {y_param} by {x_param}",
                 labels={x_param: x_param.replace('_', ' ').title(), y_param: y_param.replace('_', ' ').title()}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         elif chart_type == "Heatmap" and x_param != "None" and y_param != "None" and color_param != "None":
             st.subheader(f"🔥 Heatmap: {color_param} by {x_param} and {y_param}")
@@ -383,7 +383,7 @@ with tab1:
                 labels=dict(x=x_param.replace('_', ' ').title(), y=y_param.replace('_', ' ').title(), color=color_param.replace('_', ' ').title()),
                 color_continuous_scale="RdYlBu_r"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         else:
             st.info("💡 Select chart type and parameters above to generate visualizations")
@@ -417,7 +417,7 @@ with tab1:
                     title="Transaction Velocity Comparison",
                     labels={"txns_last_24h": "Transactions Last 24h", "Transaction_Type": "Transaction Type"}
                 )
-                st.plotly_chart(fig_vel, use_container_width=True)
+                st.plotly_chart(fig_vel, width='stretch')
         
         with col_b:
             # Amount Deviation Histogram (from notebook)
@@ -437,7 +437,7 @@ with tab1:
                     barmode="overlay",
                     opacity=0.6
                 )
-                st.plotly_chart(fig_amt, use_container_width=True)
+                st.plotly_chart(fig_amt, width='stretch')
         
         col_c, col_d = st.columns(2)
         
@@ -455,7 +455,7 @@ with tab1:
                     title="Risk Score Distribution",
                     labels={"risk_score": "Risk Score", "Transaction_Type": "Transaction Type"}
                 )
-                st.plotly_chart(fig_risk, use_container_width=True)
+                st.plotly_chart(fig_risk, width='stretch')
         
         with col_d:
             # Fraud Rate by Country
@@ -476,7 +476,7 @@ with tab1:
                     color="Fraud_Rate",
                     color_continuous_scale="Reds"
                 )
-                st.plotly_chart(fig_country, use_container_width=True)
+                st.plotly_chart(fig_country, width='stretch')
 
 with tab2:
     st.header("📄 Reports & Presentations")

@@ -170,7 +170,7 @@ if "txn_id_clean" in df_filtered.columns:
                 detail_df = pd.DataFrame([detail_data]).T
                 detail_df.columns = ["Value"]
                 
-                st.dataframe(detail_df, use_container_width=True, hide_index=False)
+                st.dataframe(detail_df, width='stretch', hide_index=False)
             except Exception as e:
                 st.error(f"❌ Error processing transaction: {str(e)}")
                 st.exception(e)

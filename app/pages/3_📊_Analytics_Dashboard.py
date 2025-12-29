@@ -68,7 +68,7 @@ with analytics_tabs[0]:
             if not trends_df.empty:
                 chart_data = trends_df.set_index("date")[["fraud_count", "non_fraud_count"]]
                 st.line_chart(chart_data)
-                st.dataframe(trends_df, use_container_width=True, hide_index=True)
+                st.dataframe(trends_df, width='stretch', hide_index=True)
             else:
                 st.info("No date data available for trend analysis.")
         else:
@@ -84,7 +84,7 @@ with analytics_tabs[1]:
         if not geo_df.empty:
             chart_data = geo_df.set_index("country")["fraud_rate"]
             st.bar_chart(chart_data)
-            st.dataframe(geo_df, use_container_width=True, hide_index=True)
+            st.dataframe(geo_df, width='stretch', hide_index=True)
         else:
             st.info("No geographic data available.")
     except Exception as e:
@@ -98,7 +98,7 @@ with analytics_tabs[2]:
         if not merchants_df.empty:
             chart_data = merchants_df.set_index("merchant_id")["fraud_count"]
             st.bar_chart(chart_data)
-            st.dataframe(merchants_df, use_container_width=True, hide_index=True)
+            st.dataframe(merchants_df, width='stretch', hide_index=True)
         else:
             st.info("No merchant data available.")
     except Exception as e:
@@ -113,7 +113,7 @@ with analytics_tabs[3]:
             if "card_id" in cards_df.columns:
                 chart_data = cards_df.set_index("card_id")["fraud_count"]
                 st.bar_chart(chart_data)
-            st.dataframe(cards_df, use_container_width=True, hide_index=True)
+            st.dataframe(cards_df, width='stretch', hide_index=True)
         else:
             st.info("No card data available.")
     except Exception as e:
@@ -127,7 +127,7 @@ with analytics_tabs[4]:
         if not channel_df.empty:
             chart_data = channel_df.set_index("channel")["fraud_rate"]
             st.bar_chart(chart_data)
-            st.dataframe(channel_df, use_container_width=True, hide_index=True)
+            st.dataframe(channel_df, width='stretch', hide_index=True)
         else:
             st.info("No channel data available.")
     except Exception as e:
@@ -142,7 +142,7 @@ with analytics_tabs[5]:
             if not hourly_df.empty:
                 chart_data = hourly_df.set_index("hour")["fraud_rate"]
                 st.line_chart(chart_data)
-                st.dataframe(hourly_df, use_container_width=True, hide_index=True)
+                st.dataframe(hourly_df, width='stretch', hide_index=True)
             else:
                 st.info("No timestamp data available for hourly analysis.")
         else:

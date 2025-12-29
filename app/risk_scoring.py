@@ -1,9 +1,4 @@
-"""
-Risk scoring logic for transactions.
-
-Stage 8B: ML-lite fraud risk scoring using ensemble models.
-Focus: Explainable risk ranking with industry-standard approaches.
-"""
+"""Risk scoring logic using ensemble models (Logistic Regression + Random Forest)."""
 
 import os
 import pickle
@@ -23,10 +18,7 @@ _shap_features = None
 
 
 def cleanup_resources():
-    """
-    Clean up SHAP explainer and model references.
-    Call this when shutting down the app to free memory.
-    """
+    """Clean up SHAP explainer and model references."""
     global _shap_explainer, _shap_model, _shap_features
     _shap_explainer = None
     _shap_model = None
@@ -43,95 +35,57 @@ MODEL_METADATA_PATH = MODELS_DIR / "model_metadata.pkl"
 
 
 def calculate_risk_score(df: pd.DataFrame) -> pd.Series:
-    """
-    Calculate placeholder risk scores for transactions.
-
-    This is a simple rule-based scoring system that will be replaced
-    with ML-lite scoring in Stage 8B.
-
-    Args:
-        df: DataFrame with transaction features
-
-    Returns:
-        Series of risk scores (0-100, higher = more risky)
-    """
+    """Calculate placeholder risk scores (0-100) using rule-based logic."""
     if df.empty:
         return pd.Series(dtype=float)
     
-    # Initialize risk score
     risk_score = pd.Series(0.0, index=df.index)
     
-    # Rule 1: High transaction velocity (last 24h)
     if "txns_last_24h" in df.columns:
-        # Normalize to 0-30 scale (assuming max ~30 txns in 24h is very high)
         velocity_risk = (df["txns_last_24h"].fillna(0) / 30.0 * 25).clip(0, 25)
         risk_score += velocity_risk
     
-    # Rule 2: Amount deviation from card average
     if "amount_vs_card_avg" in df.columns:
-        # Higher deviation = higher risk (normalize to 0-20 scale)
         amount_dev_risk = (df["amount_vs_card_avg"].fillna(1.0).abs() - 1.0) * 10
         amount_dev_risk = amount_dev_risk.clip(0, 20)
         risk_score += amount_dev_risk
     
-    # Rule 3: High-risk merchant
     if "is_high_risk_merchant" in df.columns:
         risk_score += df["is_high_risk_merchant"].fillna(False).astype(int) * 15
     
-    # Rule 4: Emulator device
     if "is_emulator_device" in df.columns:
         risk_score += df["is_emulator_device"].fillna(False).astype(int) * 15
     
-    # Rule 5: Merchant fraud rate
     if "merchant_fraud_rate_30d" in df.columns:
-        # Normalize to 0-15 scale (assuming max ~0.5 = 50% fraud rate)
         merchant_risk = (df["merchant_fraud_rate_30d"].fillna(0) / 0.5 * 15).clip(0, 15)
         risk_score += merchant_risk
     
-    # Rule 6: Decline history
     if "declined_txns_last_24h" in df.columns:
         decline_risk = (df["declined_txns_last_24h"].fillna(0) / 5.0 * 10).clip(0, 10)
         risk_score += decline_risk
     
-    # Clip final score to 0-100 range
-    risk_score = risk_score.clip(0, 100)
+    return risk_score.clip(0, 100)
     
     return risk_score
 
 
 def explain_risk_score(row: pd.Series) -> list[str]:
-    """
-    Generate SHAP-based explanation for why a transaction is risky.
-    
-    Uses SHAP (SHapley Additive exPlanations) for model-agnostic, 
-    mathematically principled feature importance.
-    
-    Args:
-        row: Single transaction row (Series)
-        
-    Returns:
-        List of explanation strings with SHAP values
-    """
+    """Generate SHAP-based explanation for transaction risk."""
     global _shap_explainer, _shap_model, _shap_features
     
     explanations = []
     
-    # Try SHAP explanation if available
-    # Initialize SHAP explainer lazily if model exists but explainer doesn't
     if _shap_model is not None and _shap_features is not None and _shap_explainer is None:
         try:
-            # Suppress SHAP warnings and use a simpler explainer for faster cleanup
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 _shap_explainer = shap.TreeExplainer(_shap_model)
-        except Exception as e:
-            # If SHAP fails, just use fallback - don't block
+        except Exception:
             _shap_explainer = None
     
     if _shap_explainer is not None and _shap_model is not None and _shap_features is not None:
         try:
-            # Prepare feature vector for this transaction
             feature_values = []
             for feat in _shap_features:
                 if feat in row.index:
@@ -144,37 +98,26 @@ def explain_risk_score(row: pd.Series) -> list[str]:
                 else:
                     feature_values.append(0)
             
-            # Calculate SHAP values
-            # For binary classification, TreeExplainer returns shape (n_samples, n_classes, n_features)
-            # We want class 1 (fraud) values for the first (and only) sample
             shap_output = _shap_explainer.shap_values(np.array([feature_values]))
             
-            # Handle different SHAP output formats
             if isinstance(shap_output, list):
-                # List format: [class_0_values, class_1_values]
-                shap_values = shap_output[1][0]  # Class 1, first sample
+                shap_values = shap_output[1][0]
             elif isinstance(shap_output, np.ndarray):
-                # Array format: (n_samples, n_classes, n_features) or (n_samples, n_features)
                 if len(shap_output.shape) == 3:
-                    shap_values = shap_output[0, 1, :]  # First sample, class 1, all features
+                    shap_values = shap_output[0, 1, :]
                 else:
-                    shap_values = shap_output[0, :]  # First sample, all features
+                    shap_values = shap_output[0, :]
             else:
-                # Fallback
                 shap_values = shap_output[0] if hasattr(shap_output, '__getitem__') else np.zeros(len(_shap_features))
             
-            # Create feature importance pairs
             feature_importance = list(zip(_shap_features, shap_values))
             feature_importance.sort(key=lambda x: abs(x[1]), reverse=True)
             
-            # Generate explanations from top contributing features
-            for feat, shap_val in feature_importance[:5]:  # Top 5 features
-                if abs(shap_val) > 0.01:  # Only show significant contributions
+            for feat, shap_val in feature_importance[:5]:
+                if abs(shap_val) > 0.01:
                     direction = "increases" if shap_val > 0 else "decreases"
                     impact = abs(shap_val) * 100
                     feat_value = row.get(feat, "N/A")
-                    
-                    # Format feature-specific explanations
                     if feat == "txns_last_24h":
                         explanations.append(
                             f"Transaction velocity {direction} risk by {impact:.1f}% "
@@ -202,11 +145,9 @@ def explain_risk_score(row: pd.Series) -> list[str]:
             if not explanations:
                 explanations.append("SHAP analysis: No significant feature contributions identified")
                 
-        except Exception as e:
-            # Fallback to rule-based if SHAP fails
+        except Exception:
             explanations = _fallback_explanation(row)
     else:
-        # Fallback to rule-based explanation if SHAP not available
         explanations = _fallback_explanation(row)
     
     return explanations
@@ -215,8 +156,6 @@ def explain_risk_score(row: pd.Series) -> list[str]:
 def _fallback_explanation(row: pd.Series) -> list[str]:
     """Fallback rule-based explanation if SHAP is not available."""
     explanations = []
-    
-    # Check each risk factor
     if "txns_last_24h" in row and pd.notna(row["txns_last_24h"]) and row["txns_last_24h"] > 10:
         explanations.append(f"High transaction velocity: {row['txns_last_24h']:.0f} transactions in the last 24 hours")
     

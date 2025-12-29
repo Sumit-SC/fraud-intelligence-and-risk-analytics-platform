@@ -1,22 +1,10 @@
-"""
-Analytics functions for fraud investigation.
-
-Non-modeling analytics focused on patterns, trends, and insights.
-"""
+"""Analytics functions for fraud investigation."""
 
 import pandas as pd
 
 
 def get_fraud_trends(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate fraud trends over time.
-
-    Args:
-        df: Transaction DataFrame with txn_date and is_fraud columns
-
-    Returns:
-        DataFrame with daily fraud counts and rates
-    """
+    """Calculate fraud trends over time."""
     if df.empty or "txn_date" not in df.columns or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
@@ -32,15 +20,7 @@ def get_fraud_trends(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_geographic_analysis(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze fraud by country.
-
-    Args:
-        df: Transaction DataFrame with country_std and is_fraud columns
-
-    Returns:
-        DataFrame with fraud statistics by country
-    """
+    """Analyze fraud by country."""
     if df.empty or "country_std" not in df.columns or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
@@ -56,16 +36,7 @@ def get_geographic_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_top_risky_merchants(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
-    """
-    Get top N merchants by fraud count.
-
-    Args:
-        df: Transaction DataFrame with merchant_id_clean, merchant_risk_tier, and is_fraud
-        top_n: Number of top merchants to return
-
-    Returns:
-        DataFrame with top risky merchants
-    """
+    """Get top N merchants by fraud count."""
     if df.empty or "merchant_id_clean" not in df.columns or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
@@ -81,16 +52,7 @@ def get_top_risky_merchants(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
 
 
 def get_top_risky_cards(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
-    """
-    Get top N cards by fraud count or risk score.
-
-    Args:
-        df: Transaction DataFrame with is_fraud and risk_score
-        top_n: Number of top cards to return
-
-    Returns:
-        DataFrame with top risky cards (aggregated by risk score if card_id not available)
-    """
+    """Get top N cards by fraud count or risk score."""
     if df.empty or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
@@ -106,17 +68,15 @@ def get_top_risky_cards(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
         
         card_stats = df.groupby("card_id_clean").agg(agg_dict).reset_index()
         
-        # Handle different column structures
         if "risk_score" in df.columns:
             card_stats.columns = ["card_id", "fraud_count", "total_count", "avg_risk_score", "total_amount"]
         else:
             card_stats.columns = ["card_id", "fraud_count", "total_count", "total_amount"]
-            card_stats["avg_risk_score"] = 0.5  # Placeholder
+            card_stats["avg_risk_score"] = 0.5
         
         card_stats["fraud_rate"] = (card_stats["fraud_count"] / card_stats["total_count"] * 100).round(2)
         card_stats = card_stats.sort_values("fraud_count", ascending=False).head(top_n)
     else:
-        # Fallback: show high-risk transactions
         if "risk_score" in df.columns and "txn_id_clean" in df.columns:
             high_risk = df.nlargest(top_n, "risk_score")[["txn_id_clean", "risk_score", "is_fraud", "amount"]].copy()
             high_risk.columns = ["transaction_id", "risk_score", "is_fraud", "amount"]
@@ -127,15 +87,7 @@ def get_top_risky_cards(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
 
 
 def get_channel_analysis(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze fraud by channel.
-
-    Args:
-        df: Transaction DataFrame with channel_std and is_fraud
-
-    Returns:
-        DataFrame with fraud statistics by channel
-    """
+    """Analyze fraud by channel."""
     if df.empty or "channel_std" not in df.columns or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
@@ -151,30 +103,19 @@ def get_channel_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_hourly_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze fraud patterns by hour of day.
-
-    Args:
-        df: Transaction DataFrame with txn_ts or txn_date and is_fraud
-
-    Returns:
-        DataFrame with hourly fraud statistics
-    """
+    """Analyze fraud patterns by hour of day."""
     if df.empty or "is_fraud" not in df.columns:
         return pd.DataFrame()
 
     df_copy = df.copy()
     
-    # Try to extract hour from txn_ts or txn_date
     if "txn_ts" in df_copy.columns:
         df_copy["hour"] = pd.to_datetime(df_copy["txn_ts"], errors="coerce").dt.hour
     elif "txn_date" in df_copy.columns:
-        # If only date available, we can't get hour - return empty
         return pd.DataFrame()
     else:
         return pd.DataFrame()
 
-    # Drop rows where hour extraction failed
     df_copy = df_copy.dropna(subset=["hour"])
 
     if df_copy.empty:

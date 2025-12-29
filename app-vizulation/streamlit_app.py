@@ -38,13 +38,38 @@ from data_loader import load_transaction_data, get_filter_options
 from utils import format_currency, apply_filters
 from risk_scoring import score_transactions, explain_risk_score
 
-# Page configuration
-st.set_page_config(
-    page_title="Fraud Investigation & Risk Scoring",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Page configuration (skip if running from unified router)
+if 'unified_app' not in st.session_state or not st.session_state.get('unified_app', False):
+    st.set_page_config(
+        page_title="Fraud Investigation & Risk Scoring",
+        page_icon="🔍",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+# Hide Streamlit footer and branding
+hide_streamlit_style = """
+    <style>
+    footer {visibility: hidden;}
+    footer:after {
+        content:'';
+        visibility: hidden;
+    }
+    .stDeployButton {display:none;}
+    #stDecoration {display:none;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Add mode switching controls in a compact sidebar dropdown when running from unified router
+if st.session_state.get('unified_app', False):
+    with st.sidebar.expander("🔄 Mode Navigation", expanded=False):
+        if st.button("🧠 Switch to Advanced Mode"):
+            st.session_state.app_mode = "advanced"
+            st.rerun()
+        if st.button("🏠 Back to Mode Selector"):
+            st.session_state.app_mode = None
+            st.rerun()
 
 # App Title
 st.title("🔍 Fraud Investigation & Risk Scoring")
@@ -365,7 +390,7 @@ else:
                 ]
             }
             fraud_stats_df = pd.DataFrame(fraud_stats_data)
-            st.dataframe(fraud_stats_df, use_container_width=True, hide_index=True)
+            st.dataframe(fraud_stats_df, width='stretch', hide_index=True)
         
         with stats_col2:
             st.markdown("**Risk Band Distribution**")
@@ -384,7 +409,7 @@ else:
                     ]
                 }
                 risk_stats_df = pd.DataFrame(risk_stats_data)
-                st.dataframe(risk_stats_df, use_container_width=True, hide_index=True)
+                st.dataframe(risk_stats_df, width='stretch', hide_index=True)
             else:
                 st.info("Risk band information not available")
         
@@ -408,7 +433,7 @@ else:
                 ]
             }
             amount_stats_df = pd.DataFrame(amount_stats_data)
-            st.dataframe(amount_stats_df, use_container_width=True, hide_index=True)
+            st.dataframe(amount_stats_df, width='stretch', hide_index=True)
         
         # Merchant risk tier breakdown
         if "merchant_risk_tier" in df_filtered.columns:
@@ -416,7 +441,7 @@ else:
             merchant_stats = df_filtered["merchant_risk_tier"].value_counts().reset_index()
             merchant_stats.columns = ["Merchant Risk Tier", "Count"]
             merchant_stats["Percentage"] = (merchant_stats["Count"] / total_txns * 100).apply(lambda x: f"{x:.2f}%")
-            st.dataframe(merchant_stats, use_container_width=True, hide_index=True)
+            st.dataframe(merchant_stats, width='stretch', hide_index=True)
         
         # Channel breakdown
         if "channel_std" in df_filtered.columns:
@@ -424,7 +449,7 @@ else:
             channel_stats = df_filtered["channel_std"].value_counts().reset_index()
             channel_stats.columns = ["Channel", "Count"]
             channel_stats["Percentage"] = (channel_stats["Count"] / total_txns * 100).apply(lambda x: f"{x:.2f}%")
-            st.dataframe(channel_stats, use_container_width=True, hide_index=True)
+            st.dataframe(channel_stats, width='stretch', hide_index=True)
         
         # Country breakdown
         if "country_std" in df_filtered.columns:
@@ -432,7 +457,7 @@ else:
             country_stats = df_filtered["country_std"].value_counts().reset_index()
             country_stats.columns = ["Country", "Count"]
             country_stats["Percentage"] = (country_stats["Count"] / total_txns * 100).apply(lambda x: f"{x:.2f}%")
-            st.dataframe(country_stats, use_container_width=True, hide_index=True)
+            st.dataframe(country_stats, width='stretch', hide_index=True)
     
     # Main Section A: Transaction Table
     st.markdown("---")
@@ -484,7 +509,7 @@ else:
     # Display table
     st.dataframe(
         df_table,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=400
     )
@@ -665,7 +690,7 @@ else:
                                 showlegend=False
                             )
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width='stretch')
                             
                             st.caption("💡 **SHAP Values**: Positive values (red) increase fraud risk, negative values (green) decrease risk. "
                                      "Magnitude shows the strength of the contribution.")
@@ -801,7 +826,7 @@ else:
                 
                 if feature_data:
                     feature_df = pd.DataFrame(feature_data)
-                    st.dataframe(feature_df, use_container_width=True, hide_index=True)
+                    st.dataframe(feature_df, width='stretch', hide_index=True)
     
     # Project Showcase Section
     st.markdown("---")
