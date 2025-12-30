@@ -16,11 +16,68 @@ import streamlit as st
 
 from app.shared import get_filtered_data
 
-st.set_page_config(
-    page_title="Export & Documentation",
-    page_icon="📥",
-    layout="wide"
-)
+# Page config - skip if running from unified router
+if 'unified_app' not in st.session_state or not st.session_state.get('unified_app', False):
+    st.set_page_config(
+        page_title="Export & Documentation",
+        page_icon="📥",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+# Hide Streamlit branding
+hide_streamlit_style = """
+    <style>
+    footer {visibility: hidden;}
+    footer:after {
+        content:'';
+        visibility: hidden;
+    }
+    .stDeployButton {display:none;}
+    #stDecoration {display:none;}
+    
+    /* Increase sidebar width and make it responsive */
+    section[data-testid="stSidebar"] {
+        min-width: 350px !important;
+        width: 350px !important;
+    }
+    
+    /* Auto-expand sidebar when expanders are open */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+        width: 100%;
+    }
+    
+    /* Ensure buttons in 2-column layout have proper spacing */
+    section[data-testid="stSidebar"] [data-testid="column"] {
+        padding: 0 5px;
+    }
+    
+    /* Make expander content wider when opened */
+    section[data-testid="stSidebar"] .streamlit-expanderContent {
+        width: 100%;
+        padding: 0.5rem 0;
+    }
+    
+    /* Ensure buttons fit properly in expanders */
+    section[data-testid="stSidebar"] .streamlit-expanderContent button {
+        width: 100%;
+        margin: 0.25rem 0;
+    }
+    
+    /* Responsive sidebar - expand more if needed */
+    @media (min-width: 768px) {
+        section[data-testid="stSidebar"] {
+            min-width: 400px !important;
+            width: 400px !important;
+        }
+    }
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# IMPORTANT: Setup sidebar FIRST before any main content
+from app.shared import setup_sidebar_filters
+df_full_filters = setup_sidebar_filters()
 
 st.title("📥 Export & Documentation")
 

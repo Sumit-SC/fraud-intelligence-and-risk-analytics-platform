@@ -7,7 +7,9 @@ import pandas as pd
 
 def load_transaction_data(csv_path: str = "data/bi/feat_transactions_risk_bi.csv") -> pd.DataFrame:
     """Load transaction data from BI export CSV."""
-    csv_file = Path(csv_path)
+    # Resolve path relative to project root (not current working directory)
+    project_root = Path(__file__).parent.parent
+    csv_file = project_root / csv_path
     
     if not csv_file.exists():
         return pd.DataFrame(columns=[

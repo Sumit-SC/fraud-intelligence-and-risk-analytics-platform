@@ -6,7 +6,6 @@ Transaction Overview page with filters.
 
 import sys
 from pathlib import Path
-import atexit
 
 # Add project root to Python path for imports
 project_root = Path(__file__).parent.parent
@@ -18,10 +17,9 @@ import streamlit as st
 
 from app.shared import setup_sidebar_filters, get_filtered_data
 from app.utils import format_currency
-from app.risk_scoring import cleanup_resources
 
-# Register cleanup function to run on app shutdown
-atexit.register(cleanup_resources)
+# Note: Removed atexit handler - Streamlit handles cleanup automatically
+# Adding atexit handlers can cause delays and errors during shutdown
 
 
 def _generate_risk_assessment(row: pd.Series) -> str:
@@ -105,25 +103,52 @@ hide_streamlit_style = """
     }
     .stDeployButton {display:none;}
     #stDecoration {display:none;}
+    
+    /* Increase sidebar width and make it responsive */
+    section[data-testid="stSidebar"] {
+        min-width: 350px !important;
+        width: 350px !important;
+    }
+    
+    /* Auto-expand sidebar when expanders are open */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+        width: 100%;
+    }
+    
+    /* Ensure buttons in 2-column layout have proper spacing */
+    section[data-testid="stSidebar"] [data-testid="column"] {
+        padding: 0 5px;
+    }
+    
+    /* Make expander content wider when opened */
+    section[data-testid="stSidebar"] .streamlit-expanderContent {
+        width: 100%;
+        padding: 0.5rem 0;
+    }
+    
+    /* Ensure buttons fit properly in expanders */
+    section[data-testid="stSidebar"] .streamlit-expanderContent button {
+        width: 100%;
+        margin: 0.25rem 0;
+    }
+    
+    /* Responsive sidebar - expand more if needed */
+    @media (min-width: 768px) {
+        section[data-testid="stSidebar"] {
+            min-width: 400px !important;
+            width: 400px !important;
+        }
+    }
     </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Add mode switching controls in a compact sidebar dropdown when running from unified router
-if st.session_state.get('unified_app', False):
-    with st.sidebar.expander("🔄 Mode Navigation", expanded=False):
-        if st.button("🚀 Switch to Basic Mode"):
-            st.session_state.app_mode = "basic"
-            st.rerun()
-        if st.button("🏠 Back to Mode Selector"):
-            st.session_state.app_mode = None
-            st.rerun()
-
-# Title
-st.title("📊 Transaction Overview")
-
-# Setup sidebar filters
+# IMPORTANT: Setup sidebar FIRST before any main content (ensures sidebar renders)
 df_full = setup_sidebar_filters()
+
+# App Title at Top
+st.markdown("<h1 style='text-align: center; margin-bottom: 10px;'>Fraud Intelligence & Risk Analytics</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666; margin-bottom: 30px;'>📊 Transaction Overview</p>", unsafe_allow_html=True)
 
 if df_full.empty:
     st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first to generate the BI export CSV.")
@@ -199,6 +224,10 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
+# Get max rows limit from session state (set in filters section)
+# Default to filtered count if not set
+table_data_limit = st.session_state.get("table_data_limit", len(df_filtered) if not df_filtered.empty else 0)
+
 # Display filter summary in sidebar
 st.sidebar.markdown("---")
 st.sidebar.metric("Filtered Transactions", f"{len(df_filtered):,}")
@@ -211,7 +240,7 @@ if df_filtered.empty:
     st.warning("⚠️ No transactions match the selected filters. Please adjust your filters.")
     st.info("💡 **Tip**: Adjust your filters in the sidebar to see transaction data.")
 else:
-    # Dataset Overview Section (Stage 8A style - before transaction table)
+    # Dataset Overview Section (before transaction table)
     st.markdown("---")
     st.subheader("📊 Dataset Overview")
     
@@ -321,6 +350,18 @@ else:
     else:
         df_display = df_filtered.copy()
     
+    # Apply data chunk limit FIRST (before formatting to reduce processing)
+    total_rows = len(df_filtered)
+    if total_rows > table_data_limit:
+        # Random sample to reduce load
+        df_display = df_filtered.sample(n=min(table_data_limit, total_rows), random_state=42).copy()
+        df_display = df_display.sort_values("risk_score", ascending=False, na_position="last") if 'risk_score' in df_display.columns else df_display.sort_index()
+        st.info(f"📊 Showing {len(df_display):,} randomly sampled rows (out of {total_rows:,} filtered transactions). Adjust 'Max rows to display' in filters section to change.")
+    else:
+        df_display = df_filtered.copy()
+        if total_rows > 0:
+            st.success(f"✅ Showing all {total_rows:,} filtered transactions.")
+    
     # Select columns for display
     display_columns = [
         "txn_id_clean",
@@ -338,7 +379,6 @@ else:
     
     if not available_columns:
         st.error("❌ No displayable columns found in data")
-        st.dataframe(df_display.head())  # Show raw data for debugging
         st.stop()
     
     df_table = df_display[available_columns].copy()
@@ -369,23 +409,6 @@ else:
         "risk_band": "Risk Band"
     }
     df_table = df_table.rename(columns=column_rename)
-    
-    # Pagination for large tables (free tier optimization)
-    page_size = 1000
-    total_rows = len(df_table)
-    if total_rows > page_size:
-        num_pages = (total_rows + page_size - 1) // page_size
-        page_num = st.number_input(
-            f"Page (1-{num_pages})",
-            min_value=1,
-            max_value=num_pages,
-            value=1,
-            key="transaction_page"
-        )
-        start_idx = (page_num - 1) * page_size
-        end_idx = min(start_idx + page_size, total_rows)
-        df_table = df_table.iloc[start_idx:end_idx]
-        st.info(f"Showing rows {start_idx+1:,}-{end_idx:,} of {total_rows:,} total transactions")
     
     # Transaction Selection & Quick Analysis
     st.markdown("---")
@@ -515,16 +538,8 @@ else:
     if df_table.empty:
         st.warning("⚠️ No transactions to display. Please check your filters.")
     else:
-        # Show first 1000 rows for performance (Streamlit can handle this)
-        display_limit = 1000
-        if len(df_table) > display_limit:
-            st.caption(f"Showing first {display_limit:,} of {len(df_table):,} transactions. Use filters to narrow down.")
-            df_table_display = df_table.head(display_limit)
-        else:
-            df_table_display = df_table
-        
         st.dataframe(
-            df_table_display,
+            df_table,
             width='stretch',
             hide_index=True,
             height=400

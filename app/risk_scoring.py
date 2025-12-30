@@ -19,11 +19,17 @@ _shap_features = None
 
 
 def cleanup_resources():
-    """Clean up SHAP explainer and model references."""
+    """Clean up SHAP explainer and model references - non-blocking."""
     global _shap_explainer, _shap_model, _shap_features
-    _shap_explainer = None
-    _shap_model = None
-    _shap_features = None
+    try:
+        # SHAP TreeExplainer can have background threads - set to None quickly
+        # Don't try to call cleanup methods that might block
+        _shap_explainer = None
+        _shap_model = None
+        _shap_features = None
+    except Exception:
+        # Silently fail - don't block shutdown
+        pass
 
 # Model persistence paths
 MODELS_DIR = Path(__file__).parent.parent / "models"
@@ -66,8 +72,6 @@ def calculate_risk_score(df: pd.DataFrame) -> pd.Series:
         risk_score += decline_risk
     
     return risk_score.clip(0, 100)
-    
-    return risk_score
 
 
 def explain_risk_score(row: pd.Series) -> list[str]:
@@ -219,9 +223,13 @@ def _save_models(lr_model, rf_model, scaler, feature_names):
         print(f"Warning: Could not save models: {e}")
 
 
-@st.cache_resource
+@st.cache_resource(max_entries=1)
 def _load_models_cached(expected_features_tuple):
-    """Cached model loading - models are expensive to load, cache them."""
+    """
+    Cached model loading optimized for Streamlit Cloud.
+    - max_entries: 1 - only keep one model version in memory
+    - Models are expensive to load, but we only need one set at a time
+    """
     expected_features = list(expected_features_tuple)
     try:
         if not all([LR_MODEL_PATH.exists(), RF_MODEL_PATH.exists(), 

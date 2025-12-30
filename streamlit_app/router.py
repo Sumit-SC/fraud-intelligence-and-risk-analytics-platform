@@ -33,6 +33,42 @@ def run() -> None:
         }
         .stDeployButton {display:none;}
         #stDecoration {display:none;}
+        
+        /* Increase sidebar width and make it responsive */
+        section[data-testid="stSidebar"] {
+            min-width: 350px !important;
+            width: 350px !important;
+        }
+        
+        /* Auto-expand sidebar when expanders are open */
+        section[data-testid="stSidebar"] .streamlit-expanderHeader {
+            width: 100%;
+        }
+        
+        /* Ensure buttons in 2-column layout have proper spacing */
+        section[data-testid="stSidebar"] [data-testid="column"] {
+            padding: 0 5px;
+        }
+        
+        /* Make expander content wider when opened */
+        section[data-testid="stSidebar"] .streamlit-expanderContent {
+            width: 100%;
+            padding: 0.5rem 0;
+        }
+        
+        /* Ensure buttons fit properly in expanders */
+        section[data-testid="stSidebar"] .streamlit-expanderContent button {
+            width: 100%;
+            margin: 0.25rem 0;
+        }
+        
+        /* Responsive sidebar - expand more if needed */
+        @media (min-width: 768px) {
+            section[data-testid="stSidebar"] {
+                min-width: 400px !important;
+                width: 400px !important;
+            }
+        }
         </style>
     """
     st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -83,7 +119,7 @@ def run() -> None:
         return
 
     project_root = Path(__file__).parent.parent
-
+    
     try:
         if st.session_state.app_mode == "basic":
             app_viz_path = project_root / "app-vizulation"
@@ -95,7 +131,15 @@ def run() -> None:
             import pandas as pd
             import os
 
-            basic_app_file = app_viz_path / "streamlit_app.py"
+            # Check which page to load from session state
+            current_page = st.session_state.get("basic_current_page", "main")
+            
+            if current_page == "dashboard":
+                # Load Interactive Dashboard page
+                basic_app_file = app_viz_path / "pages" / "1_📊_Interactive_Dashboard.py"
+            else:
+                # Load main dashboard
+                basic_app_file = app_viz_path / "streamlit_app.py"
             
             old_cwd = os.getcwd()
             old_path = sys.path.copy()

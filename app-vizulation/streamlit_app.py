@@ -1,20 +1,15 @@
 """
 Fraud Investigation & Risk Scoring - Streamlit Visualization App
 
-Stage 8A: Clean app skeleton focused on layout, filters, and placeholders.
+Basic Mode: Fast, lightweight visualization interface with interactive charts.
 This is a visualization-focused app to showcase the project.
 
-App Requirements:
-- App title: "Fraud Investigation & Risk Scoring"
-- Sidebar filters: Date range, Merchant risk tier, Channel, Country, Fraud/Non-fraud toggle
-- Main section A: Table of transactions with key columns, sorted by risk_score
-- Main section B: Placeholder panel explaining why a selected transaction is risky
-
-Technical constraints:
-- Data source: feature table (CSV or DataFrame placeholder)
-- No model training in this stage
-- Use clean, readable Streamlit components
-- Focus on visualization and showcasing the project
+Features:
+- Interactive Plotly charts with dynamic parameter selection
+- ML-powered risk scoring with ensemble models
+- Risk explanations with SHAP values
+- PDF viewer & Power BI integration
+- Data chunking for performance optimization
 """
 
 import sys
@@ -57,31 +52,114 @@ hide_streamlit_style = """
     }
     .stDeployButton {display:none;}
     #stDecoration {display:none;}
+    
+    /* Increase sidebar width and make it responsive */
+    section[data-testid="stSidebar"] {
+        min-width: 350px !important;
+        width: 350px !important;
+    }
+    
+    /* Auto-expand sidebar when expanders are open */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+        width: 100%;
+    }
+    
+    /* Ensure buttons in 2-column layout have proper spacing */
+    section[data-testid="stSidebar"] [data-testid="column"] {
+        padding: 0 5px;
+    }
+    
+    /* Make expander content wider when opened */
+    section[data-testid="stSidebar"] .streamlit-expanderContent {
+        width: 100%;
+        padding: 0.5rem 0;
+    }
+    
+    /* Ensure buttons fit properly in expanders */
+    section[data-testid="stSidebar"] .streamlit-expanderContent button {
+        width: 100%;
+        margin: 0.25rem 0;
+    }
+    
+    /* Responsive sidebar - expand more if needed */
+    @media (min-width: 768px) {
+        section[data-testid="stSidebar"] {
+            min-width: 400px !important;
+            width: 400px !important;
+        }
+    }
     </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Add mode switching controls in a compact sidebar dropdown when running from unified router
-if st.session_state.get('unified_app', False):
-    with st.sidebar.expander("🔄 Mode Navigation", expanded=False):
-        if st.button("🧠 Switch to Advanced Mode"):
-            st.session_state.app_mode = "advanced"
-            st.rerun()
-        if st.button("🏠 Back to Mode Selector"):
-            st.session_state.app_mode = None
-            st.rerun()
-
-# App Title
-st.title("🔍 Fraud Investigation & Risk Scoring")
+# App Title at Top
+st.markdown("<h1 style='text-align: center; margin-bottom: 10px;'>Fraud Intelligence & Risk Analytics</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666; margin-bottom: 30px;'>🔍 Fraud Investigation & Risk Scoring</p>", unsafe_allow_html=True)
 st.markdown("**Visualization & Exploration Dashboard for Fraud Intelligence & Risk Analytics**")
 
-# Sidebar Filters
+# Top section: Mode Switch | Navigation (side by side, both in expanders)
+if st.session_state.get('unified_app', False):
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        with st.expander("🔄 Mode Switch", expanded=False):
+            if st.button("🧠 Switch to Advanced Mode", use_container_width=True, key="mode_switch_advanced_basic"):
+                st.session_state.app_mode = "advanced"
+                st.rerun()
+            if st.button("🏠 Back to Mode Selector", use_container_width=True, key="mode_switch_home_basic"):
+                st.session_state.app_mode = None
+                st.rerun()
+    
+    with col2:
+        with st.expander("🧭 Navigation", expanded=False):
+            basic_pages = {
+                "🏠 Main Dashboard": "main",
+                "📊 Interactive Dashboard": "dashboard"
+            }
+            
+            # Get current page name from session state or file
+            if "basic_current_page" not in st.session_state:
+                current_file = Path(__file__).name
+                if current_file == "streamlit_app.py":
+                    st.session_state.basic_current_page = "main"
+                else:
+                    st.session_state.basic_current_page = "dashboard"
+            
+            current_page_name = st.session_state.basic_current_page
+            
+            # Map current page to display name
+            page_display_map = {"main": "🏠 Main Dashboard", "dashboard": "📊 Interactive Dashboard"}
+            current_display_name = page_display_map.get(current_page_name, "🏠 Main Dashboard")
+            
+            # Reverse map for lookup
+            display_to_page = {v: k for k, v in basic_pages.items()}
+            page_to_display = {v: k for k, v in basic_pages.items()}
+            
+            selected_display = st.selectbox(
+                "Select Page",
+                options=list(basic_pages.keys()),
+                index=list(basic_pages.keys()).index(current_display_name) if current_display_name in basic_pages.keys() else 0,
+                key="basic_page_nav"
+            )
+            
+            # Navigate if page changed
+            selected_page_key = basic_pages[selected_display]
+            if selected_page_key != current_page_name:
+                st.session_state.basic_current_page = selected_page_key
+                st.rerun()
+
+# Filters section - ALWAYS OPEN (no expander)
+st.sidebar.markdown("---")
 st.sidebar.header("🔧 Filters")
 
-# Load data with caching
-@st.cache_data(show_spinner=False, ttl=3600)
+# Load data with caching - optimized for Streamlit Cloud
+@st.cache_data(show_spinner=False, ttl=600, max_entries=1)
 def _load_data_cached():
-    """Cache data loading with 1 hour TTL."""
+    """
+    Cache data loading optimized for Streamlit Cloud.
+    - TTL: 600 seconds (10 minutes) - shorter for free tier memory management
+    - max_entries: 1 - only keep one cached version to save memory
+    """
     return load_transaction_data()
 
 df_full = _load_data_cached()
@@ -150,6 +228,79 @@ fraud_filter = st.sidebar.selectbox(
     options=["All", "Fraud Only", "Non-Fraud Only"],
     key="fraud_filter"
 )
+
+# Apply filters to get filtered count for max rows selector
+try:
+    df_filtered_temp = apply_filters(
+        df_full,
+        date_start=date_start,
+        date_end=date_end,
+        merchant_risk_tier=merchant_risk_tier,
+        channel=channel,
+        country=country,
+        fraud_filter=fraud_filter
+    )
+    filtered_count = len(df_filtered_temp) if df_filtered_temp is not None else 0
+except Exception as e:
+    # Fallback if filtering fails
+    filtered_count = 0
+    st.sidebar.warning(f"⚠️ Error applying filters: {str(e)}")
+
+# Max rows selector - in filters section, auto-selects filtered count
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Max Rows to Display")
+
+# Standard chunk options
+chunk_options = {
+    "5K": 5000,
+    "10K": 10000,
+    "25K": 25000,
+    "50K": 50000,
+    "100K": 100000,
+    "250K": 250000,
+    "400K": 400000
+}
+
+# Build available options - only include options <= filtered_count
+available_options = []
+available_values = {}
+
+# Add exact filtered count as first option (default)
+# Format the count nicely (e.g., "60K" for 60000, "1.2M" for 1200000)
+if filtered_count > 0:
+    if filtered_count >= 1000000:
+        filtered_label = f"{filtered_count/1000000:.1f}M (All Filtered)"
+    elif filtered_count >= 1000:
+        filtered_label = f"{filtered_count/1000:.0f}K (All Filtered)"
+    else:
+        filtered_label = f"{filtered_count:,} (All Filtered)"
+    available_options.append(filtered_label)
+    available_values[filtered_label] = filtered_count
+
+# Add standard options that are <= filtered_count
+for label, value in chunk_options.items():
+    if value <= filtered_count:
+        available_options.append(label)
+        available_values[label] = value
+
+# If no options (empty filtered), add a placeholder
+if not available_options:
+    available_options = ["0 (No Data)"]
+    available_values["0 (No Data)"] = 0
+
+# Default to first option (filtered count)
+default_index = 0
+
+selected_chunk_label = st.sidebar.selectbox(
+    "Max rows to display",
+    options=available_options,
+    index=default_index,
+    key="basic_table_chunk_selector",
+    help=f"Filtered results: {filtered_count:,} rows. Options larger than filtered results are hidden."
+)
+
+# Store selected limit in session state for use in main page
+st.session_state["basic_table_data_limit"] = available_values.get(selected_chunk_label, filtered_count)
 
 # Display filter summary in sidebar
 st.sidebar.markdown("---")
@@ -251,10 +402,37 @@ df_filtered = apply_filters(
     fraud_filter=fraud_filter
 )
 
-# Score filtered transactions using trained model
-if not df_filtered.empty:
+# Get max rows limit from session state (set in filters section)
+# Default to filtered count if not set
+try:
+    dataset_size = st.session_state.get("basic_table_data_limit", len(df_filtered) if not df_filtered.empty else 0)
+    # Ensure dataset_size is valid
+    if dataset_size < 0:
+        dataset_size = len(df_filtered) if not df_filtered.empty else 0
+except Exception:
+    dataset_size = len(df_filtered) if not df_filtered.empty else 0
+
+# Sample data based on selected size - before scoring
+if not df_filtered.empty and len(df_filtered) > dataset_size:
+    try:
+        df_display = df_filtered.sample(n=min(dataset_size, len(df_filtered)), random_state=42).copy()
+        st.info(f"📊 Showing {len(df_display):,} randomly sampled rows (out of {len(df_filtered):,} filtered transactions). Adjust 'Max rows to display' in filters section to change.")
+    except Exception as e:
+        # Fallback if sampling fails
+        df_display = df_filtered.head(dataset_size).copy()
+        st.warning(f"⚠️ Sampling failed, showing first {len(df_display):,} rows: {str(e)}")
+else:
+    df_display = df_filtered.copy()
+    if len(df_filtered) > 0:
+        st.success(f"✅ Showing all {len(df_filtered):,} filtered transactions.")
+
+# Score sampled transactions using trained model (only score what we display)
+if not df_display.empty:
     with st.spinner("📊 Scoring transactions..."):
-        df_filtered = score_transactions(df_filtered)
+        df_display = score_transactions(df_display)
+    
+    # Keep df_filtered for metrics (full filtered dataset)
+    # df_display is used for table (sampled and scored)
 
 # Display filter summary metrics
 st.sidebar.markdown("---")
@@ -262,6 +440,93 @@ st.sidebar.metric("Filtered Transactions", f"{len(df_filtered):,}")
 if not df_filtered.empty and "is_fraud" in df_filtered.columns:
     fraud_count = df_filtered["is_fraud"].sum()
     st.sidebar.metric("Fraud Transactions", f"{fraud_count:,}")
+
+# About Project section (collapsed by default)
+if st.session_state.get('unified_app', False):
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📋 About Project", expanded=False):
+        st.markdown("<h3 style='text-align: center;'>Fraud Intelligence & Risk Analytics</h3>", unsafe_allow_html=True)
+        st.markdown('''---''')
+        st.markdown('''
+        **Project Highlights:**
+        
+        • End-to-end fraud detection system
+        • SQL-based ETL pipeline
+        • ML ensemble models (LR + RF)
+        • SHAP-based explanations
+        • Interactive Streamlit dashboards
+        • Power BI integration
+        
+        **Technologies:**
+        • Python, SQL, MySQL
+        • scikit-learn, SHAP
+        • Streamlit, Plotly
+        • Power BI
+        ''')
+    
+    # Connect with Me section (always open, 4 clickable icons)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔗 Connect with Me")
+    
+    # Create 4 columns for icons
+    icon_col1, icon_col2, icon_col3, icon_col4 = st.sidebar.columns(4)
+    
+    with icon_col1:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://github.com/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s66cDoBZ.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="Github">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Github</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col2:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://www.kaggle.com/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s65GCpDu.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="Kaggle">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Kaggle</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col3:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://www.linkedin.com/in/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s65TFl9W.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="LinkedIn">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">LinkedIn</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col4:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="mailto:your.email@example.com">
+                <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" 
+                     style="cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'">
+                    <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" fill="#1f77b4"/>
+                </svg>
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Email</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # Main Content
 if df_filtered.empty:
@@ -470,12 +735,11 @@ else:
     st.markdown("**Main Section A: Transactions sorted by risk score**")
     
     # Sort by risk_score (descending) if available, otherwise by date
-    if 'risk_score' in df_filtered.columns:
-        df_display = df_filtered.sort_values("risk_score", ascending=False, na_position="last")
-    elif 'txn_date' in df_filtered.columns:
-        df_display = df_filtered.sort_values("txn_date", ascending=False, na_position="last")
-    else:
-        df_display = df_filtered.copy()
+    # Sort df_display (already sampled and scored) for table
+    if 'risk_score' in df_display.columns:
+        df_display = df_display.sort_values("risk_score", ascending=False, na_position="last")
+    elif 'txn_date' in df_display.columns:
+        df_display = df_display.sort_values("txn_date", ascending=False, na_position="last")
     
     # Select columns for display
     display_columns = [
@@ -593,245 +857,70 @@ else:
             st.markdown("---")
             st.markdown("### 🎯 Risk Explanation")
             
+            # Always score this transaction to ensure we have accurate risk score and models loaded
+            with st.spinner("🔄 Calculating risk score and loading models..."):
+                try:
+                    single_df = pd.DataFrame([selected_row])
+                    scored_df = score_transactions(single_df)
+                    if not scored_df.empty:
+                        selected_row = scored_df.iloc[0]
+                except Exception as e:
+                    st.warning(f"⚠️ Could not score transaction: {str(e)}")
+            
             # Check if model is available
             from risk_scoring import get_model_info
             model_info = get_model_info()
             
-            # Debug: Show what we're working with (always visible for troubleshooting)
-            with st.expander("🔍 Debug Info", expanded=True):
-                st.write(f"**Selected Transaction:** {selected_txn_id}")
-                st.write(f"**Model Status:** {model_info.get('status')}")
-                st.write(f"**Model Features:** {model_info.get('features', [])}")
-                st.write(f"**Selected Row Columns:** {list(selected_row.index)[:10]}")
-                st.write(f"**Has risk_score:** {'risk_score' in selected_row.index}")
-                st.write(f"**Has risk_band:** {'risk_band' in selected_row.index}")
-                st.write(f"**Risk Score Value:** {selected_row.get('risk_score', 'N/A')}")
-                st.write(f"**Risk Band Value:** {selected_row.get('risk_band', 'N/A')}")
+            if model_info.get("status") != "Model trained":
+                st.info("💡 **Note**: Models not trained yet. Risk explanations will use rule-based analysis.")
             
-            if model_info.get("status") == "Model trained":
-                st.success("🤖 **ML-lite Model Active**: Using Logistic Regression coefficients for explanations")
-                
-                # Show model info in expander
-                with st.expander("📊 Model Information", expanded=False):
-                    st.json({
-                        "Model Type": "Logistic Regression",
-                        "Features": model_info.get("features", []),
-                        "Intercept": f"{model_info.get('intercept', 0):.4f}",
-                        "Status": "Trained and Ready"
-                    })
-                
-                # Get explanations (try SHAP first, fallback to coefficients)
-                explanations = []
-                shap_data = None
-                try:
-                    # Use spinner to show progress
-                    with st.spinner("🔄 Generating risk explanation..."):
-                        explanations = explain_risk_score(selected_row, use_shap=True)
+            # Get explanations
+            explanations = []
+            try:
+                with st.spinner("🔄 Generating risk explanation..."):
+                    explanations = explain_risk_score(selected_row)
                     
-                    # Get SHAP values for visualization
-                    from risk_scoring import get_shap_values, SHAP_AVAILABLE
-                    try:
-                        shap_data = get_shap_values(selected_row)
-                    except Exception as shap_err:
-                        st.warning(f"⚠️ SHAP visualization unavailable: {str(shap_err)}")
-                        shap_data = None
-                    
-                    # Debug: Always show what we got
                     if explanations is None:
                         explanations = []
-                    st.write(f"**Debug:** Generated {len(explanations)} explanations")
-                    
-                    # Always display explanations if they exist
-                    # Ensure explanations is a list
-                    if explanations is None:
-                        explanations = []
-                    
-                    if len(explanations) > 0:
-                        if shap_data:
-                            st.markdown("**🤖 ML-lite Model Analysis - SHAP-based Feature Contributions:**")
-                            st.success("✅ Using SHAP (SHapley Additive exPlanations) for mathematically principled explanations")
-                        else:
-                            st.markdown("**🤖 ML-lite Model Analysis - Coefficient-based Feature Contributions:**")
-                            st.info("ℹ️ Using Logistic Regression coefficients (SHAP not available)")
-                        
-                        st.markdown("")
-                        
-                        # Display each explanation
-                        for explanation in explanations:
-                            st.markdown(explanation)
-                        
-                        # SHAP visualization
-                        if shap_data and SHAP_AVAILABLE:
-                            st.markdown("")
-                            st.markdown("**📊 SHAP Values Visualization:**")
-                            
-                            # Create a simple bar chart of SHAP values
-                            import plotly.graph_objects as go
-                            
-                            feature_names = shap_data["feature_names"]
-                            shap_vals = shap_data["shap_values"]
-                            
-                            # Sort by absolute SHAP value
-                            sorted_data = sorted(zip(feature_names, shap_vals), key=lambda x: abs(x[1]), reverse=True)
-                            sorted_features, sorted_shap = zip(*sorted_data)
-                            
-                            # Create bar chart
-                            fig = go.Figure()
-                            colors = ['red' if v > 0 else 'green' for v in sorted_shap]
-                            fig.add_trace(go.Bar(
-                                x=list(sorted_features),
-                                y=list(sorted_shap),
-                                marker_color=colors,
-                                text=[f"{v:+.3f}" for v in sorted_shap],
-                                textposition='outside',
-                                name="SHAP Value"
-                            ))
-                            
-                            fig.update_layout(
-                                title="Feature Contributions to Fraud Risk (SHAP Values)",
-                                xaxis_title="Features",
-                                yaxis_title="SHAP Value (Impact on Fraud Probability)",
-                                height=400,
-                                showlegend=False
-                            )
-                            
-                            st.plotly_chart(fig, width='stretch')
-                            
-                            st.caption("💡 **SHAP Values**: Positive values (red) increase fraud risk, negative values (green) decrease risk. "
-                                     "Magnitude shows the strength of the contribution.")
-                        else:
-                            st.markdown("")
-                            st.caption("💡 **Note**: Coefficients show how each feature contributes to the fraud probability. "
-                                     "Positive coefficients increase risk, negative coefficients decrease risk.")
-                    else:
-                        # Fallback: Show basic info even if no explanations
-                        st.warning("⚠️ **No detailed explanations generated.** This might indicate:")
-                        st.write("1. Model coefficients are very small")
-                        st.write("2. Feature values are missing or invalid")
-                        st.write("3. Transaction has no significant risk factors")
-                        st.write(f"**Debug:** Explanation count = {len(explanations) if explanations else 0}")
-                        
-                        st.markdown("---")
-                        st.markdown("### 📊 Basic Transaction Information")
-                        
-                        # Always show risk score and band
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            if "risk_score" in selected_row.index:
-                                risk_score = selected_row.get("risk_score", 0)
-                                st.metric("Risk Score", f"{risk_score*100:.1f}%")
-                            else:
-                                st.metric("Risk Score", "N/A")
-                        with col2:
-                            if "risk_band" in selected_row.index:
-                                risk_band = selected_row.get("risk_band", "UNKNOWN")
-                                band_emoji = "🔴" if risk_band == "HIGH" else ("🟡" if risk_band == "MEDIUM" else "🟢")
-                                st.metric("Risk Band", f"{band_emoji} {risk_band}")
-                            else:
-                                st.metric("Risk Band", "N/A")
-                        with col3:
-                            is_fraud = selected_row.get("is_fraud", False)
-                            fraud_status = "✅ Fraud" if is_fraud else "❌ Legitimate"
-                            st.metric("Fraud Status", fraud_status)
-                        
-                        # Show feature values
-                        st.markdown("**📋 Feature Values:**")
-                        feature_cols = ["txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d", 
-                                       "is_high_risk_merchant", "is_emulator_device"]
-                        feature_data = {}
-                        for col in feature_cols:
-                            if col in selected_row.index:
-                                val = selected_row.get(col, "N/A")
-                                if pd.notna(val):
-                                    if isinstance(val, bool):
-                                        feature_data[col] = "Yes" if val else "No"
-                                    elif col == "merchant_fraud_rate_30d":
-                                        feature_data[col] = f"{val*100:.2f}%"
-                                    else:
-                                        feature_data[col] = val
-                                else:
-                                    feature_data[col] = "N/A"
-                            else:
-                                feature_data[col] = "Not Available"
-                        st.json(feature_data)
-                except Exception as e:
-                    st.error(f"❌ Error generating explanations: {str(e)}")
-                    import traceback
-                    with st.expander("🔍 Error Details", expanded=True):
-                        st.code(traceback.format_exc())
-                    
-                    # Show fallback info even on error
-                    st.info("Showing basic transaction information:")
-                    if "risk_score" in selected_row.index:
-                        st.metric("Risk Score", f"{selected_row['risk_score']*100:.1f}%")
-                    if "risk_band" in selected_row.index:
-                        st.metric("Risk Band", selected_row['risk_band'])
-            else:
-                st.warning("⚠️ **Model Not Trained**: Using fallback rule-based explanations")
-                explanations = []
-                try:
-                    with st.spinner("🔄 Generating rule-based explanations..."):
-                        explanations = explain_risk_score(selected_row, use_shap=False)
-                    
-                    st.write(f"**Debug:** Generated {len(explanations) if explanations else 0} rule-based explanations")
                     
                     if explanations and len(explanations) > 0:
-                        st.markdown("**🔍 Risk Factors (Rule-based Analysis):**")
+                        st.markdown("#### Risk Factors:")
                         for i, explanation in enumerate(explanations, 1):
-                            st.markdown(f"{i}. {explanation}")
+                            if "increases risk" in explanation.lower() and any(x in explanation for x in ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"]):
+                                st.markdown(f"**{i}. {explanation}**")
+                            else:
+                                st.markdown(f"{i}. {explanation}")
                     else:
-                        st.info("ℹ️ **No significant risk factors identified** for this transaction using rule-based analysis.")
+                        st.info("ℹ️ No significant risk factors identified for this transaction.")
                         
-                        # Show feature values even if no explanations
-                        st.markdown("**📋 Transaction Features:**")
-                        feature_cols = ["txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d", 
-                                       "is_high_risk_merchant", "is_emulator_device"]
-                        for feat in feature_cols:
-                            if feat in selected_row.index:
-                                val = selected_row[feat]
-                                if pd.notna(val):
-                                    if isinstance(val, bool):
-                                        val_display = "Yes" if val else "No"
-                                    elif feat == "merchant_fraud_rate_30d":
-                                        val_display = f"{val*100:.2f}%"
-                                    else:
-                                        val_display = f"{val:.2f}" if isinstance(val, float) else str(val)
-                                    st.write(f"- **{feat.replace('_', ' ').title()}:** {val_display}")
-                except Exception as e:
-                    st.error(f"❌ **Error generating explanations:** {str(e)}")
-                    import traceback
-                    with st.expander("🔍 Error Details", expanded=True):
-                        st.code(traceback.format_exc())
-                    
-                    # Always show something even on error
-                    st.markdown("**📋 Showing basic transaction information:**")
-                    if "risk_score" in selected_row.index:
-                        st.metric("Risk Score", f"{selected_row.get('risk_score', 0)*100:.1f}%")
-                    if "risk_band" in selected_row.index:
-                        st.metric("Risk Band", selected_row.get('risk_band', 'UNKNOWN'))
+            except Exception as e:
+                st.warning(f"⚠️ Error generating explanation: {str(e)}")
+                st.info("Using fallback explanations...")
+                explanations = [
+                    f"Risk Score: {selected_row.get('risk_score', 0.5)*100:.1f}%",
+                    f"Risk Band: {selected_row.get('risk_band', 'MEDIUM')}"
+                ]
+                if selected_row.get('is_fraud', False):
+                    explanations.append("⚠️ This transaction is marked as fraud")
                 
-                # Show feature values for this transaction
-                st.markdown("---")
-                st.markdown("### 📋 Feature Values")
-                feature_cols = ["txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d", 
-                               "is_high_risk_merchant", "is_emulator_device"]
-                feature_data = []
-                for feat in feature_cols:
-                    if feat in selected_row.index:
-                        val = selected_row[feat]
-                        if isinstance(val, bool):
-                            val = "Yes" if val else "No"
-                        elif pd.notna(val) and feat == "merchant_fraud_rate_30d":
-                            val = f"{val*100:.2f}%"
-                        elif pd.notna(val):
-                            val = f"{val:.2f}"
-                        else:
-                            val = "N/A"
-                        feature_data.append({"Feature": feat.replace("_", " ").title(), "Value": val})
-                
-                if feature_data:
-                    feature_df = pd.DataFrame(feature_data)
-                    st.dataframe(feature_df, width='stretch', hide_index=True)
+                if explanations and len(explanations) > 0:
+                    st.markdown("#### Risk Factors:")
+                    for i, explanation in enumerate(explanations, 1):
+                        st.markdown(f"{i}. {explanation}")
+            
+            # Display additional context
+            st.markdown("---")
+            st.subheader("📋 Transaction Details")
+            
+            detail_cols = ["txn_id_clean", "txn_date", "amount", "channel_std", "country_std",
+                          "txns_last_24h", "amount_vs_card_avg", "merchant_risk_tier",
+                          "merchant_fraud_rate_30d", "is_high_risk_merchant", "is_emulator_device"]
+            
+            detail_data = {col: selected_row.get(col, "N/A") for col in detail_cols if col in selected_row.index}
+            detail_df = pd.DataFrame([detail_data]).T
+            detail_df.columns = ["Value"]
+            
+            st.dataframe(detail_df, width='stretch', hide_index=False)
     
     # Project Showcase Section
     st.markdown("---")
@@ -839,7 +928,7 @@ else:
     st.markdown("**Power BI Integration & Visualizations**")
     
     # Power BI file reference
-    pbix_path = project_root / "Fraud_Analytics.pbix"
+    pbix_path = project_root / "docs" / "Fraud_Analytics.pbix"
     if pbix_path.exists():
         st.info(f"📁 **Power BI File Available**: `{pbix_path.name}`")
         st.markdown("""
@@ -854,42 +943,15 @@ else:
     # Placeholder for screenshots
     st.markdown("---")
     st.markdown("### 📸 Dashboard Screenshots")
-    st.info("💡 **TODO Stage 8B**: Add screenshots of Power BI dashboards here to showcase the project.")
+    st.info("💡 **Power BI Integration**: Connect your Power BI dashboard or add screenshots to showcase the project.")
     st.markdown("""
     You can add screenshots using:
     ```python
     st.image("path/to/screenshot.png", caption="Power BI Executive Dashboard")
     ```
     """)
-    
-    # Stage 8B TODO comments
-    st.markdown("---")
-    with st.expander("📝 Stage 8B TODO: ML-lite Implementation", expanded=False):
-        st.markdown("""
-        **Next Steps for Stage 8B:**
-        
-        1. **ML-lite Model Integration**
-           - Replace placeholder scoring with ensemble models (Logistic Regression + Random Forest)
-           - Load trained models from `models/` directory
-           - Implement proper risk scoring pipeline
-        
-        2. **SHAP Explanations**
-           - Replace text-based explanations with SHAP values
-           - Show feature contributions visually
-           - Add SHAP waterfall/bar plots for selected transactions
-        
-        3. **Performance Optimization**
-           - Cache model loading
-           - Batch scoring for large datasets
-           - Lazy loading of SHAP explainers
-        
-        4. **Enhanced Visualizations**
-           - Add Power BI screenshot embeddings
-           - Create comparison charts (Streamlit vs Power BI)
-           - Add interactive risk score distributions
-        """)
 
 # Footer
 st.markdown("---")
-st.caption("💡 **Stage 8A**: Visualization-focused app skeleton. Risk scoring uses placeholder rule-based logic. ML-lite implementation coming in Stage 8B.")
+st.caption("💡 **Fraud Intelligence & Risk Analytics** - ML-powered fraud detection with SHAP explanations and interactive dashboards.")
 

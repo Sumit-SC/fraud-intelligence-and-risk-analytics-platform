@@ -30,19 +30,117 @@ from utils import format_currency, apply_filters
 from risk_scoring import score_transactions
 
 # Page config
-st.set_page_config(
-    page_title="Interactive Dashboard",
-    page_icon="📊",
-    layout="wide"
-)
+# Page config - skip if running from unified router
+if 'unified_app' not in st.session_state or not st.session_state.get('unified_app', False):
+    st.set_page_config(
+        page_title="Interactive Dashboard",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+# Hide Streamlit branding
+hide_streamlit_style = """
+    <style>
+    footer {visibility: hidden;}
+    footer:after {
+        content:'';
+        visibility: hidden;
+    }
+    .stDeployButton {display:none;}
+    #stDecoration {display:none;}
+    
+    /* Increase sidebar width and make it responsive */
+    section[data-testid="stSidebar"] {
+        min-width: 350px !important;
+        width: 350px !important;
+    }
+    
+    /* Auto-expand sidebar when expanders are open */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+        width: 100%;
+    }
+    
+    /* Ensure buttons in 2-column layout have proper spacing */
+    section[data-testid="stSidebar"] [data-testid="column"] {
+        padding: 0 5px;
+    }
+    
+    /* Make expander content wider when opened */
+    section[data-testid="stSidebar"] .streamlit-expanderContent {
+        width: 100%;
+        padding: 0.5rem 0;
+    }
+    
+    /* Ensure buttons fit properly in expanders */
+    section[data-testid="stSidebar"] .streamlit-expanderContent button {
+        width: 100%;
+        margin: 0.25rem 0;
+    }
+    
+    /* Responsive sidebar - expand more if needed */
+    @media (min-width: 768px) {
+        section[data-testid="stSidebar"] {
+            min-width: 400px !important;
+            width: 400px !important;
+        }
+    }
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 st.title("📊 Interactive Analytics Dashboard")
 st.markdown("**Dynamic visualizations, reports, and Power BI integration**")
 
-# Load data with caching
-@st.cache_data(show_spinner=False, ttl=3600)
+# Top section: Mode Switch | Navigation (side by side, both in expanders)
+if st.session_state.get('unified_app', False):
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        with st.expander("🔄 Mode Switch", expanded=False):
+            if st.button("🧠 Switch to Advanced Mode", use_container_width=True, key="mode_switch_advanced_dashboard"):
+                st.session_state.app_mode = "advanced"
+                st.rerun()
+            if st.button("🏠 Back to Mode Selector", use_container_width=True, key="mode_switch_home_dashboard"):
+                st.session_state.app_mode = None
+                st.rerun()
+    
+    with col2:
+        with st.expander("🧭 Navigation", expanded=False):
+            basic_pages = {
+                "🏠 Main Dashboard": "main",
+                "📊 Interactive Dashboard": "dashboard"
+            }
+            
+            # Set current page in session state
+            if "basic_current_page" not in st.session_state:
+                st.session_state.basic_current_page = "dashboard"
+            
+            current_page_name = st.session_state.basic_current_page
+            page_display_map = {"main": "🏠 Main Dashboard", "dashboard": "📊 Interactive Dashboard"}
+            current_display_name = page_display_map.get(current_page_name, "📊 Interactive Dashboard")
+            
+            selected_display = st.selectbox(
+                "Select Page",
+                options=list(basic_pages.keys()),
+                index=list(basic_pages.keys()).index(current_display_name) if current_display_name in basic_pages.keys() else 1,
+                key="basic_page_nav"
+            )
+            
+            # Navigate if page changed
+            selected_page_key = basic_pages[selected_display]
+            if selected_page_key != current_page_name:
+                st.session_state.basic_current_page = selected_page_key
+                st.rerun()
+
+# Load data with caching - optimized for Streamlit Cloud
+@st.cache_data(show_spinner=False, ttl=600, max_entries=1)
 def _load_data_cached():
-    """Cache data loading with 1 hour TTL."""
+    """
+    Cache data loading optimized for Streamlit Cloud.
+    - TTL: 600 seconds (10 minutes) - shorter for free tier memory management
+    - max_entries: 1 - only keep one cached version to save memory
+    """
     return load_transaction_data()
 
 df_full = _load_data_cached()
@@ -53,31 +151,6 @@ if df_full.empty:
 
 # Sidebar filters (same as main page)
 st.sidebar.header("🔧 Filters")
-
-# Data chunk selector for charting performance
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Chart Data Limit")
-max_data_points = len(df_full)
-chunk_options = {
-    "10K": 10000,
-    "100K": 100000,
-    "200K": 200000,
-    "400K": 400000,
-    "All Data": max_data_points
-}
-
-# Filter out options larger than available data
-available_chunks = {k: v for k, v in chunk_options.items() if v <= max_data_points}
-if max_data_points > 400000:
-    available_chunks["All Data"] = max_data_points
-
-selected_chunk_label = st.sidebar.selectbox(
-    "Max data points for charts",
-    options=list(available_chunks.keys()),
-    index=min(2, len(available_chunks) - 1),  # Default to 100K or closest available
-    help="Limit data points used for charting to improve performance. Filters are applied first, then sampling."
-)
-chart_data_limit = available_chunks[selected_chunk_label]
 
 # Date range filter
 if "txn_date" in df_full.columns and not df_full["txn_date"].isna().all():
@@ -102,8 +175,18 @@ else:
     date_start = None
     date_end = None
 
-# Get filter options
-filter_options = get_filter_options(df_full)
+# Get filter options (fast operation - no caching needed)
+# Add error handling to prevent crashes
+try:
+    filter_options = get_filter_options(df_full)
+except Exception as e:
+    st.error(f"⚠️ Error loading filter options: {str(e)}")
+    # Fallback to empty options
+    filter_options = {
+        "merchant_risk_tiers": [],
+        "channels": [],
+        "countries": []
+    }
 
 # Other filters
 merchant_risk_tier = st.sidebar.selectbox(
@@ -130,55 +213,96 @@ fraud_filter = st.sidebar.selectbox(
     key="dashboard_fraud"
 )
 
-# Data chunk selector for charting performance
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Chart Data Limit")
-max_data_points = len(df_full)
-chunk_options = {
-    "10K": 10000,
-    "100K": 100000,
-    "200K": 200000,
-    "400K": 400000,
-    "All Data": max_data_points
-}
-
-# Filter out options larger than available data
-available_chunks = {k: v for k, v in chunk_options.items() if v <= max_data_points}
-if max_data_points > 400000:
-    available_chunks["All Data"] = max_data_points
-elif "All Data" not in available_chunks:
-    available_chunks["All Data"] = max_data_points
-
-selected_chunk_label = st.sidebar.selectbox(
-    "Max data points for charts",
-    options=list(available_chunks.keys()),
-    index=min(2, len(available_chunks) - 1),
-    help="Limit data points used for charting to improve performance. Filters are applied first, then sampling."
-)
-chart_data_limit = available_chunks[selected_chunk_label]
-
-# Apply filters
+# Apply filters first
 from utils import apply_filters
-df_filtered = apply_filters(
-    df_full,
-    date_start=date_start,
-    date_end=date_end,
-    merchant_risk_tier=merchant_risk_tier,
-    channel=channel,
-    country=country,
-    fraud_filter=fraud_filter
-)
+try:
+    df_filtered = apply_filters(
+        df_full,
+        date_start=date_start,
+        date_end=date_end,
+        merchant_risk_tier=merchant_risk_tier,
+        channel=channel,
+        country=country,
+        fraud_filter=fraud_filter
+    )
+    # Ensure df_filtered is a DataFrame
+    if df_filtered is None:
+        df_filtered = pd.DataFrame()
+except Exception as e:
+    st.error(f"⚠️ Error applying filters: {str(e)}")
+    df_filtered = pd.DataFrame()
 
-# Score transactions
-if not df_filtered.empty:
-    df_filtered = score_transactions(df_filtered)
-
-# Apply data chunk limit for charting (sample if needed)
-if len(df_filtered) > chart_data_limit:
-    df_chart = df_filtered.sample(n=chart_data_limit, random_state=42).copy()
-    st.info(f"📊 Using {chart_data_limit:,} randomly sampled data points (from {len(df_filtered):,} filtered) for charting to improve performance.")
+# Check if filtered data is empty - handle early to avoid errors
+if df_filtered.empty:
+    st.warning("⚠️ No transactions match the selected filters. Please adjust your filters.")
+    st.info("💡 **Tip**: Adjust your filters in the sidebar to see transaction data.")
+    df_chart = df_filtered.copy()  # Empty dataframe for consistency
 else:
-    df_chart = df_filtered.copy()
+    # Skip scoring for dashboard page - it's for visualization only
+    # Scoring is expensive and not needed for charts
+    # Add placeholder risk scores if columns don't exist
+    if 'risk_score' not in df_filtered.columns:
+        df_filtered['risk_score'] = 0.5
+    if 'risk_band' not in df_filtered.columns:
+        df_filtered['risk_band'] = 'MEDIUM'
+
+    # Data chunk selector on main page (not sidebar) - default to 10K
+    # This appears after filters are applied, so we sample from filtered data
+    st.markdown("---")
+    col_info, col_selector = st.columns([2, 1])
+    with col_info:
+        st.markdown(f"**📊 Filtered Data:** {len(df_filtered):,} transactions")
+    with col_selector:
+        # Dataset size options
+        chunk_options = {
+            "5K": 5000,
+            "10K": 10000,
+            "25K": 25000,
+            "50K": 50000,
+            "100K": 100000,
+            "250K": 250000,
+            "400K": 400000,
+            "All Data": len(df_filtered)
+        }
+        
+        # Filter out options larger than available filtered data
+        available_chunks = {k: v for k, v in chunk_options.items() if v <= len(df_filtered)}
+        if len(df_filtered) > 400000:
+            available_chunks["All Data"] = len(df_filtered)
+        elif "All Data" not in available_chunks:
+            available_chunks["All Data"] = len(df_filtered)
+        
+        # Ensure we have at least one option
+        if not available_chunks:
+            available_chunks["All Data"] = len(df_filtered)
+        
+        # Default to 10K (index 1 if available, otherwise first option)
+        default_index = 1 if "10K" in available_chunks else 0
+        if default_index >= len(available_chunks):
+            default_index = 0
+        
+        selected_chunk_label = st.selectbox(
+            "📊 Dataset Size",
+            options=list(available_chunks.keys()),
+            index=default_index,
+            key="dashboard_dataset_size",
+            help="Select dataset size for charting. Filters are applied first, then sampling."
+        )
+        dataset_size = available_chunks[selected_chunk_label]
+
+    # Sample data based on selected size (default 10K)
+    try:
+        if len(df_filtered) > dataset_size:
+            df_chart = df_filtered.sample(n=min(dataset_size, len(df_filtered)), random_state=42).copy()
+            st.info(f"📊 Using {len(df_chart):,} randomly sampled data points (from {len(df_filtered):,} filtered transactions) for charting to improve performance.")
+        else:
+            df_chart = df_filtered.copy()
+            if len(df_filtered) > 0:
+                st.success(f"✅ Using all {len(df_filtered):,} filtered transactions for charting.")
+    except Exception as e:
+        # Fallback if sampling fails
+        st.error(f"⚠️ Error sampling data: {str(e)}")
+        df_chart = df_filtered.head(min(dataset_size, len(df_filtered))).copy() if not df_filtered.empty else pd.DataFrame()
 
 # Sidebar metrics
 st.sidebar.markdown("---")
@@ -187,6 +311,93 @@ if not df_filtered.empty and "is_fraud" in df_filtered.columns:
     fraud_count = df_filtered["is_fraud"].sum()
     st.sidebar.metric("Fraud Transactions", f"{fraud_count:,}")
 
+# About Project section (collapsed by default)
+if st.session_state.get('unified_app', False):
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📋 About Project", expanded=False):
+        st.markdown("<h3 style='text-align: center;'>Fraud Intelligence & Risk Analytics</h3>", unsafe_allow_html=True)
+        st.markdown('''---''')
+        st.markdown('''
+        **Project Highlights:**
+        
+        • End-to-end fraud detection system
+        • SQL-based ETL pipeline
+        • ML ensemble models (LR + RF)
+        • SHAP-based explanations
+        • Interactive Streamlit dashboards
+        • Power BI integration
+        
+        **Technologies:**
+        • Python, SQL, MySQL
+        • scikit-learn, SHAP
+        • Streamlit, Plotly
+        • Power BI
+        ''')
+    
+    # Connect with Me section (always open, 4 clickable icons)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔗 Connect with Me")
+    
+    # Create 4 columns for icons
+    icon_col1, icon_col2, icon_col3, icon_col4 = st.sidebar.columns(4)
+    
+    with icon_col1:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://github.com/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s66cDoBZ.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="Github">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Github</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col2:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://www.kaggle.com/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s65GCpDu.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="Kaggle">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Kaggle</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col3:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="https://www.linkedin.com/in/" target="_blank">
+                <img src="https://mitsus-.life-is-pa.in/7s65TFl9W.png" 
+                     style="width: 50px; height: 50px; cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'"
+                     alt="LinkedIn">
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">LinkedIn</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with icon_col4:
+        st.markdown("""
+        <div style="text-align: center;">
+            <a href="mailto:your.email@example.com">
+                <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" 
+                     style="cursor: pointer; transition: transform 0.2s;" 
+                     onmouseover="this.style.transform='scale(1.1)'" 
+                     onmouseout="this.style.transform='scale(1)'">
+                    <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" fill="#1f77b4"/>
+                </svg>
+            </a>
+            <p style="margin-top: 5px; font-size: 0.75em;">Email</p>
+        </div>
+        """, unsafe_allow_html=True)
+
 # Main content tabs
 tab1, tab2, tab3 = st.tabs(["📈 Interactive Charts", "📄 Reports & Presentations", "🔗 Power BI Integration"])
 
@@ -194,7 +405,7 @@ with tab1:
     st.header("📈 Interactive Visualizations")
     st.markdown("**Select chart type and parameters to explore your data dynamically**")
     
-    if df_filtered.empty:
+    if df_chart.empty or df_filtered.empty:
         st.warning("⚠️ No data to display. Adjust your filters.")
     else:
         # Chart type selector
@@ -231,23 +442,77 @@ with tab1:
             color_param = None
             size_param = None
             
-            if chart_type in ["Bar Chart", "Column Chart", "Box Plot", "Violin Plot"]:
+            if chart_type == "Bar Chart":
                 x_param = st.selectbox(
                     "X-Axis / Category",
                     options=available_categorical + ["None"],
-                    key="x_param_selector",
+                    key="bar_x_param",
                     help="Select categorical variable for grouping"
                 )
                 y_param = st.selectbox(
                     "Y-Axis / Value",
                     options=available_numeric + ["None"],
-                    key="y_param_selector",
+                    key="bar_y_param",
                     help="Select numeric variable to measure"
                 )
                 color_param = st.selectbox(
                     "Color By (Optional)",
                     options=["None"] + available_categorical,
-                    key="color_param_selector"
+                    key="bar_color_param"
+                )
+            elif chart_type == "Column Chart":
+                x_param = st.selectbox(
+                    "X-Axis / Category",
+                    options=available_categorical + ["None"],
+                    key="col_x_param",
+                    help="Select categorical variable for grouping"
+                )
+                y_param = st.selectbox(
+                    "Y-Axis / Value",
+                    options=available_numeric + ["None"],
+                    key="col_y_param",
+                    help="Select numeric variable to measure"
+                )
+                color_param = st.selectbox(
+                    "Color By (Optional)",
+                    options=["None"] + available_categorical,
+                    key="col_color_param"
+                )
+            elif chart_type == "Box Plot":
+                x_param = st.selectbox(
+                    "X-Axis / Category",
+                    options=available_categorical + ["None"],
+                    key="box_x_param",
+                    help="Select categorical variable for grouping"
+                )
+                y_param = st.selectbox(
+                    "Y-Axis / Value",
+                    options=available_numeric + ["None"],
+                    key="box_y_param",
+                    help="Select numeric variable to measure"
+                )
+                color_param = st.selectbox(
+                    "Color By (Optional)",
+                    options=["None"] + available_categorical,
+                    key="box_color_param"
+                )
+            elif chart_type == "Violin Plot":
+                x_param = st.selectbox(
+                    "X-Axis / Category",
+                    options=available_categorical + ["None"],
+                    key="violin_x_param",
+                    help="Select categorical variable for grouping"
+                )
+                y_param = st.selectbox(
+                    "Y-Axis / Value",
+                    options=available_numeric + ["None"],
+                    key="violin_y_param",
+                    help="Select numeric variable to measure"
+                )
+                color_param = st.selectbox(
+                    "Color By (Optional)",
+                    options=["None"] + available_categorical,
+                    key="violin_color_param"
                 )
             elif chart_type == "Scatter Plot":
                 x_param = st.selectbox("X-Axis", options=available_numeric + ["None"], key="scatter_x")

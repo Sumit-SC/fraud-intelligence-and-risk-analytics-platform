@@ -6,7 +6,13 @@ Moved under streamlit_app/, but still checks advanced app modules under app/.
 """
 
 import sys
+import io
 from pathlib import Path
+
+# Fix Windows terminal encoding issues with emojis
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Add project root to path (one level above this file)
 project_root = Path(__file__).parent.parent
