@@ -1,539 +1,251 @@
-# 🚨 Fraud Intelligence & Risk Analytics Platform
+## Executive Summary
 
-> **A production-ready fraud detection system** that demonstrates end-to-end data engineering, feature engineering, machine learning, and interactive visualization capabilities.
-
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Latest-red.svg)](https://streamlit.io/)
-[![MySQL](https://img.shields.io/badge/MySQL-8.0+-orange.svg)](https://www.mysql.com/)
-[![Power BI](https://img.shields.io/badge/Power%20BI-Desktop-yellow.svg)](https://powerbi.microsoft.com/)
-
----
-
-## 📋 Table of Contents
-
-- [Project Overview](#-project-overview)
-- [Key Features](#-key-features)
-- [Quick Start](#-quick-start)
-- [Architecture & Data Pipeline](#-architecture--data-pipeline)
-- [Data Collection & Generation](#-data-collection--generation)
-- [Data Cleaning Pipeline](#-data-cleaning-pipeline)
-- [Feature Engineering](#-feature-engineering)
-- [Machine Learning Models](#-machine-learning-models)
-- [Interactive Dashboards](#-interactive-dashboards)
-- [Project Structure](#-project-structure)
-- [Technologies Used](#-technologies-used)
+- **Business problem**: Fraud teams struggle to spot high-risk activity in millions of transactions without drowning in false positives.
+- **Why it matters**: Excess alerts drive cost and analyst burnout, while missed or delayed detections increase fraud losses and regulatory risk.
+- **What was built**: A SQL-first fraud intelligence and risk analytics platform that turns payment data into risk signals, prioritized queues, and dashboards.
+- **Scale**: Built around 1.8M+ multi-table transactions (cards, devices, merchants, rules, investigator notes) to mirror real payment environments.
+- **Key insights**: Surfaces velocity risk, merchant risk concentration, and behavioral anomalies to highlight the riskiest cards, devices, and merchants.
+- **Business impact and relevance**: Targets a 25–35% improvement in investigation efficiency for FinTech, payments, and card programs by focusing work on the highest-value cases.
 
 ---
 
-## 🎯 Project Overview
+### Project Snapshot
 
-This project showcases a **complete fraud detection analytics platform** built from scratch, demonstrating:
-
-- **Data Engineering**: Synthetic data generation, ETL pipelines, SQL-based transformations
-- **Feature Engineering**: Business-relevant fraud signals (velocity, behavioral patterns, merchant risk)
-- **Machine Learning**: Ensemble models (Logistic Regression + Random Forest) with SHAP explanations
-- **Data Visualization**: Interactive Streamlit dashboards and Power BI reports
-- **Production Practices**: Model persistence, caching, error handling, modular architecture
-
-**Perfect for**: Data Analysts, Data Engineers, ML Engineers, and Analytics professionals looking to showcase end-to-end capabilities.
-
----
-
-## ✨ Key Features
-
-### 🔍 **Fraud Detection & Risk Scoring**
-- **Ensemble ML Models**: Logistic Regression + Random Forest for robust risk scoring
-- **SHAP Explanations**: Model-agnostic feature importance for interpretability
-- **Real-time Scoring**: Fast inference on filtered transaction subsets
-- **Risk Bands**: LOW/MEDIUM/HIGH categorization for business users
-
-### 📊 **Interactive Dashboards**
-- **Basic Mode**: Fast visualization-focused interface with Plotly charts
-- **Advanced Mode**: Full investigation workflow with multi-page analytics
-- **Transaction Explorer**: Filter by date, merchant, channel, country, fraud status
-- **Risk Explanation**: Detailed SHAP-based explanations for individual transactions
-- **Analytics Dashboard**: Trends, geographic analysis, merchant risk, hourly patterns
-
-### 🗄️ **Data Pipeline**
-- **Synthetic Data Generation**: Realistic fintech transaction data with fraud patterns
-- **SQL ETL Pipeline**: Staging → Enriched → Feature tables
-- **BI Export**: Optimized CSV export for dashboard consumption
-- **Model Persistence**: Trained models saved for fast inference
-
-### 📈 **Power BI Integration**
-- **Executive Dashboards**: High-level fraud metrics and trends
-- **Interactive Reports**: Drill-down capabilities for investigation
-- **Embedded Viewing**: Power BI dashboards accessible within Streamlit app
+> 📌 **Fraud Monitoring Overview (Power BI)**
+>
+> _Operational fraud monitoring dashboard used for daily risk oversight._
+>
+> <!-- TODO: Add screenshot -->
+> ![Fraud Monitoring Dashboard](docs/assets/powerbi_overview.png)
+>
+> _Screenshot should show: KPIs, time trend, merchant concentration, velocity vs fraud, and risk tier distribution.  
+> Capture full canvas with no Filters pane visible._
 
 ---
 
-## 🚀 Quick Start
+## Real-World Use Case
 
-### Prerequisites
+- **Where this system fits**
+  - **FinTechs, payments processors, and acquirers** managing large-scale transactional flows.
+  - **Digital wallets, BNPL providers, and neo-banks** balancing customer experience with strict risk controls.
 
-- **Python 3.11+**
-- **MySQL 8.0+** (local or remote)
-- **uv** package manager ([Install here](https://github.com/astral-sh/uv))
+- **Who uses it**
+  - **Fraud analysts and investigators** reviewing high-risk transactions and entities.
+  - **Risk operations teams and managers** overseeing queues, KPIs, and investigation SLAs.
 
-### Installation
-
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd fraud-intelligence-and-risk-analytics
-
-# Install dependencies
-uv sync
-```
-
-### Database Setup
-
-1. **Start MySQL** (if running locally)
-
-2. **Create database and tables**:
-   ```bash
-   mysql -u root -p
-   ```
-   ```sql
-   source sql/ddl/01_create_database.sql
-   source sql/ddl/02_create_raw_tables.sql
-   source sql/ddl/03_create_raw_dimensions.sql
-   ```
-
-3. **Configure environment** (create `.env` file):
-   ```env
-   MYSQL_HOST=localhost
-   MYSQL_PORT=3306
-   MYSQL_USER=root
-   MYSQL_PASSWORD=your_password
-   MYSQL_DB=fraud_db
-   ```
-
-### Run the Complete Pipeline
-
-```bash
-# 1. Generate synthetic transaction data
-uv run python src/generate_raw_data.py
-
-# 2. Load raw data into MySQL
-uv run python src/load_raw_data.py
-
-# 3. Run SQL pipeline (in MySQL)
-mysql -u root -p fraud_db
-source sql/staging/stg_transactions.sql
-source sql/staging/stg_transactions_enriched.sql
-source sql/features/feat_transactions.sql
-source sql/features/feat_transactions_risk.sql
-
-# 4. Export BI-ready data
-uv run python src/export_bi_data.py
-
-# 5. Launch Streamlit app
-uv run streamlit run streamlit_app.py
-```
-
-The app will open at `http://localhost:8501`
+- **How outputs are consumed**
+  - **Interactive dashboards (Streamlit, Power BI)** for monitoring and drill-down.
+  - **Prioritized transaction and entity views** to focus analyst effort.
+  - **Exports and datasets** feeding BI tools, reports, or case management systems.
 
 ---
 
-## 🏗️ Architecture & Data Pipeline
+## High-Level Architecture
 
-```
-┌─────────────────┐
-│  Data Generator │ → Synthetic transaction data (CSV files)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   MySQL Loader  │ → Load raw CSVs into MySQL tables
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  SQL Pipeline   │ → Staging → Enriched → Features
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   BI Export     │ → CSV export for dashboards
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Streamlit App   │ → Interactive fraud investigation
-└─────────────────┘
-```
+This project is built as an **analytics and decision-support pipeline**, aligned with how fraud analytics is run in production teams:
 
----
+1. **Data generation & ingestion** – Create synthetic but representative payment and fraud data and load it into the database.
+2. **Raw & staging layers (SQL)** – Clean, standardize, and enrich source tables using SQL as the single source of truth.
+3. **Feature engineering** – Compute business-oriented fraud features (velocity, merchant risk, device patterns, behavioral deltas).
+4. **Analytics & risk scoring** – Convert features into risk scores and explanations using models and heuristics.
+5. **BI & reporting** – Export aggregated, denormalized tables for use in Power BI and other BI tools.
+6. **Streamlit investigation** – Provide an interactive investigation console with filters, dashboards, and case views for analysts.
 
-## 📥 Data Collection & Generation
+Detailed explanations of each stage are documented in the linked READMEs below.
 
-### Synthetic Data Generator
+> 📐 **System Architecture**
+>
+> <!-- TODO: Add architecture diagram -->
+> ![System Architecture](docs/assets/architecture_diagram.png)
+>
+> _Diagram should show: Data generation → SQL (raw/staging/features) → BI export → Power BI & Streamlit._
 
-**File**: [`src/generate_raw_data.py`](src/generate_raw_data.py)
+For deeper technical details, see the folder-level READMEs and docs:
 
-Generates realistic fintech transaction data with:
-- **Transactions**: 400k+ transactions across 12 months with realistic patterns
-- **Fraud Patterns**: Velocity attacks, card testing, high-risk merchants
-- **Supporting Data**: Merchants, cards, devices, rule hits, investigator notes
-
-**Key Features**:
-- Realistic date distributions and amounts
-- Fraud injection based on business rules
-- Referential integrity across tables
-- Export to CSV format for MySQL ingestion
-
-**Run**:
-```bash
-uv run python src/generate_raw_data.py
-```
-
-**Output**: CSV files in `data/raw/`:
-- `transactions/transactions_2024-*.csv` (monthly files)
-- `merchants/merchants.csv`
-- `cards/cards.csv`
-- `devices/devices.csv`
-- `rules/rule_hits.csv`
-- `investigations/investigator_notes.csv`
+- `docs/README.md` – setup, pipeline, and assets index  
+- `data/README.md` – raw, processed, and BI datasets  
+- `sql/README.md` – SQL pipeline and data layers  
+- `src/README.md` – orchestration scripts and run order  
+- `notebooks/README.md` – analytics notebooks and experimentation  
+- `models/README.md` – model artifacts and regeneration notes  
+- `streamlit_app/README.md` – shared Streamlit routing  
+- `app/README.md` – Streamlit application and investigation workflows  
+- `app-vizulation/README.md` – basic visualization mode  
+- `powerbi/README.md` – BI layer and executive dashboards  
+- `docs/data_pipeline.md` – narrative view of the end-to-end pipeline
 
 ---
 
-## 🧹 Data Cleaning Pipeline
+## Repository Structure
 
-### SQL-Based ETL Pipeline
+The structure below shows how data, analytics code, and applications are organized across the repository.
 
-The data cleaning pipeline uses **pure SQL** for maximum performance and maintainability.
+<details>
+<summary><strong>Click to expand project tree</strong></summary>
 
-#### **Staging Layer**
-
-**File**: [`sql/staging/stg_transactions.sql`](sql/staging/stg_transactions.sql)
-
-- Cleans transaction data
-- Standardizes formats (dates, amounts, channels)
-- Handles missing values
-- Creates `stg_transactions` table
-
-**File**: [`sql/staging/stg_transactions_enriched.sql`](sql/staging/stg_transactions_enriched.sql)
-
-- Joins with merchant, card, device tables
-- Adds business context (merchant risk tier, device type)
-- Creates `stg_transactions_enriched` table
-
-#### **Feature Engineering**
-
-**File**: [`sql/features/feat_transactions.sql`](sql/features/feat_transactions.sql)
-
-- **Velocity Features**: Transactions per hour/day
-- **Behavioral Features**: Amount vs card average
-- **Decline Features**: Failed transaction history
-- Creates `feat_transactions` table
-
-**File**: [`sql/features/feat_transactions_risk.sql`](sql/features/feat_transactions_risk.sql)
-
-- **Aggregate Risk Features**: Merchant fraud rates, risk tiers
-- **Time-Window Features**: 24h, 30d aggregations
-- Creates `feat_transactions_risk` table (final feature table)
-
-**Run SQL Pipeline**:
-```bash
-mysql -u root -p fraud_db
-source sql/staging/stg_transactions.sql
-source sql/staging/stg_transactions_enriched.sql
-source sql/features/feat_transactions.sql
-source sql/features/feat_transactions_risk.sql
-```
-
----
-
-## 🎯 Feature Engineering
-
-### Business-Relevant Fraud Signals
-
-The feature engineering focuses on **interpretable fraud signals**:
-
-1. **Transaction Velocity** (`txns_last_24h`)
-   - Fraudsters test cards quickly
-   - High velocity = suspicious
-
-2. **Decline History** (`declined_txns_last_24h`)
-   - Multiple declines indicate card testing
-   - Strong fraud indicator
-
-3. **Merchant Risk** (`merchant_fraud_rate_30d`, `is_high_risk_merchant`)
-   - Some merchants attract fraud
-   - Historical fraud rates matter
-
-4. **Device Type** (`is_emulator_device`)
-   - Emulators often used for fraud
-   - Mobile app vs web patterns
-
-5. **Amount Deviation** (`amount_vs_card_avg`)
-   - Unusual amounts relative to card history
-   - Behavioral anomaly detection
-
-**See**: [`sql/features/feat_transactions_risk.sql`](sql/features/feat_transactions_risk.sql) for full SQL implementation
-
----
-
-## 🤖 Machine Learning Models
-
-### Ensemble Approach
-
-**File**: [`app/risk_scoring.py`](app/risk_scoring.py)
-
-**Models**:
-- **Logistic Regression**: Interpretable, fast, coefficient-based explanations
-- **Random Forest**: Captures non-linear patterns, feature importance
-
-**Ensemble**: Weighted average (50% LR + 50% RF) for robust predictions
-
-### Model Features
-
-- **Automatic Training**: Trains on first data load with fraud labels
-- **Model Persistence**: Saves to `models/` directory (no retraining on filter changes)
-- **SHAP Explanations**: Model-agnostic feature importance using SHAP values
-- **Risk Bands**: LOW (<30%), MEDIUM (30-60%), HIGH (≥60%)
-
-### Training & Experimentation
-
-**Notebook**: [`notebooks/07_model_training_experimentation.ipynb`](notebooks/07_model_training_experimentation.ipynb)
-
-- Model training workflow
-- Hyperparameter exploration
-- Evaluation metrics (precision, recall, F1)
-- Feature importance analysis
-- SHAP value visualization
-
-**Run**:
-```bash
-uv run jupyter lab
-# Open notebooks/07_model_training_experimentation.ipynb
-```
-
----
-
-## 📊 Interactive Dashboards
-
-### Streamlit Application
-
-**Entry Point**: [`streamlit_app.py`](streamlit_app.py)
-
-**Two Modes**:
-
-#### 🚀 **Basic Mode** (Visualization-Focused)
-- Fast, lightweight interface
-- Interactive Plotly charts
-- Simple risk scoring
-- PDF viewer & Power BI integration
-
-**Code**: [`app-vizulation/streamlit_app.py`](app-vizulation/streamlit_app.py)
-
-#### 🧠 **Advanced Mode** (Full Investigation)
-- Complete transaction overview
-- SHAP-based risk explanations
-- Multi-page analytics dashboard
-- Export & documentation
-
-**Code**: [`app/streamlit_app.py`](app/streamlit_app.py)
-
-### Key Pages
-
-1. **Transaction Overview** ([`app/streamlit_app.py`](app/streamlit_app.py))
-   - Filter transactions by date, merchant, channel, country
-   - View risk scores and bands
-   - Quick risk assessment
-
-2. **Risk Explanation** ([`app/pages/2_🔎_Risk_Explanation.py`](app/pages/2_🔎_Risk_Explanation.py))
-   - SHAP-based feature importance
-   - Detailed transaction analysis
-   - One-liner risk assessments
-
-3. **Analytics Dashboard** ([`app/pages/3_📊_Analytics_Dashboard.py`](app/pages/3_📊_Analytics_Dashboard.py))
-   - Fraud trends over time
-   - Geographic analysis
-   - Top risky merchants & cards
-   - Channel & hourly patterns
-
-4. **Interactive Dashboard** ([`app-vizulation/pages/1_📊_Interactive_Dashboard.py`](app-vizulation/pages/1_📊_Interactive_Dashboard.py))
-   - Custom Plotly visualizations
-   - Dynamic chart builder
-   - Pre-defined analytics charts
-
-### Run Streamlit App
-
-```bash
-# Unified app (mode selector)
-uv run streamlit run streamlit_app.py
-
-# Or run individual modes
-uv run streamlit run app/streamlit_app.py          # Advanced Mode
-uv run streamlit run app-vizulation/streamlit_app.py  # Basic Mode
-```
-
----
-
-## 📈 Power BI Dashboards
-
-**File**: [`docs/Fraud_Analytics.pbix`](docs/Fraud_Analytics.pbix)
-
-### Dashboard Features
-
-- **Executive Summary**: High-level fraud metrics, trends, KPIs
-- **Transaction Analysis**: Detailed transaction exploration
-- **Risk Heatmaps**: Geographic and merchant risk visualization
-- **Time Series Analysis**: Fraud trends over time
-- **Drill-Down Capabilities**: Interactive exploration
-
-### Viewing Power BI Dashboards
-
-1. **Power BI Desktop**:
-   ```bash
-   # Open docs/Fraud_Analytics.pbix in Power BI Desktop
-   ```
-
-2. **Power BI Service** (requires Power BI Pro/PPU):
-   - Publish to Power BI Service
-   - Embed URL in Streamlit app (Basic Mode → Power BI Integration tab)
-
-3. **Streamlit Integration**:
-   - Basic Mode includes Power BI embed viewer
-   - Paste Power BI Service URL to view dashboards
-
----
-
-## 📁 Project Structure
-
-```
+```text
 fraud-intelligence-and-risk-analytics/
 │
-├── 📊 streamlit_app.py              # Main entry point (mode selector)
-├── 📦 streamlit_app/                 # Streamlit package
-│   ├── router.py                     # Mode router logic
-│   └── requirements.txt              # Streamlit dependencies
+├── streamlit_app.py           # Unified entry point (mode selector for Basic / Advanced)
+├── streamlit_app/             # Routing and shared Streamlit configuration
+│   └── router.py
 │
-├── 🚀 app/                           # Advanced Mode (Full Investigation)
-│   ├── streamlit_app.py              # Main app
-│   ├── risk_scoring.py               # ML models & scoring
-│   ├── data_loader.py                # Data loading utilities
-│   ├── analytics.py                  # Analytics functions
-│   ├── shared.py                     # Shared utilities
-│   └── pages/                        # Multi-page app pages
+├── app/                       # Advanced investigation app (multi-page Streamlit)
+│   ├── streamlit_app.py
+│   ├── shared.py
+│   ├── data_loader.py
+│   ├── risk_scoring.py
+│   ├── analytics.py
+│   └── pages/
 │       ├── 2_🔎_Risk_Explanation.py
 │       ├── 3_📊_Analytics_Dashboard.py
 │       └── 4_📥_Export_Documentation.py
 │
-├── 🎨 app-vizulation/                # Basic Mode (Visualization)
-│   ├── streamlit_app.py              # Visualization app
-│   ├── risk_scoring.py               # Simple risk scoring
-│   ├── data_loader.py                # Data loading
+├── app-vizulation/            # Basic mode (lightweight visualization app)
+│   ├── streamlit_app.py
 │   └── pages/
 │       └── 1_📊_Interactive_Dashboard.py
 │
-├── 📥 src/                           # Data Pipeline Scripts
-│   ├── generate_raw_data.py          # Synthetic data generator
-│   ├── load_raw_data.py              # MySQL data loader
-│   └── export_bi_data.py            # BI export script
+├── sql/                       # SQL-first data pipeline (DDL, staging, features)
+│   ├── ddl/
+│   ├── staging/
+│   └── features/
 │
-├── 🗄️ sql/                           # SQL Pipeline
-│   ├── ddl/                          # Database & table creation
-│   │   ├── 01_create_database.sql
-│   │   ├── 02_create_raw_tables.sql
-│   │   └── 03_create_raw_dimensions.sql
-│   ├── staging/                      # Data cleaning
-│   │   ├── stg_transactions.sql
-│   │   └── stg_transactions_enriched.sql
-│   └── features/                     # Feature engineering
-│       ├── feat_transactions.sql
-│       └── feat_transactions_risk.sql
+├── src/                       # Orchestration scripts for pipeline steps
+│   ├── generate_raw_data.py
+│   ├── load_raw_data.py
+│   ├── export_bi_data.py
+│   └── ...
 │
-├── 📓 notebooks/                     # Jupyter Notebooks
+├── notebooks/                 # Analysis, model experimentation, storytelling
 │   ├── 06_fraud_analytics_storytelling.ipynb
 │   └── 07_model_training_experimentation.ipynb
 │
-├── 💾 data/                          # Data Files
-│   ├── raw/                          # Generated raw CSVs
-│   └── bi/                           # BI export CSV
+├── data/                      # Raw, processed, and BI-ready datasets
+│   ├── raw/
+│   ├── processed/
+│   └── bi/
 │
-├── 🤖 models/                        # Trained ML Models
-│   ├── lr_model.pkl                  # Logistic Regression
-│   ├── rf_model.pkl                  # Random Forest
-│   ├── scaler.pkl                    # Feature scaler
-│   └── model_metadata.pkl            # Model metadata
-│
-└── 📄 docs/                          # Documentation
-    └── Fraud_Analytics.pbix          # Power BI dashboard
+├── models/                    # Persisted ML models and metadata
+├── docs/                      # Documentation and BI assets
+│   └── Fraud_Analytics.pbix
+└── requirements.txt / pyproject.toml
 ```
 
----
-
-## 🛠️ Technologies Used
-
-### **Data Engineering**
-- **Python 3.11+**: Core language
-- **Pandas**: Data manipulation
-- **MySQL**: Relational database
-- **SQL**: ETL pipeline and feature engineering
-
-### **Machine Learning**
-- **scikit-learn**: Logistic Regression, Random Forest
-- **SHAP**: Model interpretability
-- **NumPy**: Numerical computations
-
-### **Visualization**
-- **Streamlit**: Interactive web app
-- **Plotly**: Interactive charts
-- **Power BI**: Business intelligence dashboards
-
-### **Development Tools**
-- **uv**: Fast Python package manager
-- **Jupyter Lab**: Notebook development
-- **Git**: Version control
+</details>
 
 ---
 
-## 📚 Key Code Files
+## Quick Start (How to Run Locally)
 
-### **Data Pipeline**
-- [`src/generate_raw_data.py`](src/generate_raw_data.py) - Synthetic data generation
-- [`src/load_raw_data.py`](src/load_raw_data.py) - MySQL data loading
-- [`src/export_bi_data.py`](src/export_bi_data.py) - BI export
+This project is designed to be **easy to run on a local laptop** while still reflecting production concepts.  
+`uv` is recommended for faster, reproducible environments; `pip` instructions are provided for compatibility.
 
-### **SQL Pipeline**
-- [`sql/staging/stg_transactions.sql`](sql/staging/stg_transactions.sql) - Data cleaning
-- [`sql/staging/stg_transactions_enriched.sql`](sql/staging/stg_transactions_enriched.sql) - Data enrichment
-- [`sql/features/feat_transactions.sql`](sql/features/feat_transactions.sql) - Feature engineering
-- [`sql/features/feat_transactions_risk.sql`](sql/features/feat_transactions_risk.sql) - Risk features
+For a detailed, step-by-step setup guide (including screenshots and troubleshooting), see `docs/setup.md`. Below is the concise version.
 
-### **Machine Learning**
-- [`app/risk_scoring.py`](app/risk_scoring.py) - Ensemble models & scoring
-- [`notebooks/07_model_training_experimentation.ipynb`](notebooks/07_model_training_experimentation.ipynb) - Model training
+### Option 1 – Using `uv` (recommended)
 
-### **Dashboards**
-- [`streamlit_app.py`](streamlit_app.py) - Main entry point
-- [`app/streamlit_app.py`](app/streamlit_app.py) - Advanced Mode
-- [`app-vizulation/streamlit_app.py`](app-vizulation/streamlit_app.py) - Basic Mode
-- [`docs/Fraud_Analytics.pbix`](docs/Fraud_Analytics.pbix) - Power BI dashboard
+- **Clone the repository**
+  - `git clone https://github.com/<your-username>/fraud-intelligence-and-risk-analytics-platform.git`
+  - `cd fraud-intelligence-and-risk-analytics-platform`
 
----
+- **Install dependencies**
+  - `uv sync`
 
-## 🎓 Learning Outcomes
+- **Prepare the database**
+  - Ensure **MySQL 8+** is running.
+  - Execute the DDL and staging SQL scripts under `sql/` as described in `docs/setup.md`.
 
-This project demonstrates:
+- **Generate data and run the pipeline**
+  - `uv run python src/generate_raw_data.py`
+  - `uv run python src/load_raw_data.py`
+  - Run the staging and feature SQL scripts in order (see `sql/README.md`).
+  - `uv run python src/export_bi_data.py`
 
-✅ **End-to-end data engineering** from raw data to insights  
-✅ **SQL-based ETL pipelines** for scalable data processing  
-✅ **Feature engineering** with business-relevant fraud signals  
-✅ **Machine learning** with interpretable models  
-✅ **Production practices** (model persistence, caching, error handling)  
-✅ **Interactive visualization** with Streamlit and Power BI  
-✅ **Modular architecture** for maintainability  
+- **Launch the Streamlit app**
+  - `uv run streamlit run streamlit_app.py`
+  - Open `http://localhost:8501` in your browser.
 
----
+### Option 2 – Using `pip`
 
-## 📝 License
+- Create and activate a Python 3.11+ virtual environment.
+- Install dependencies using `pip install -r requirements.txt`.
+- Follow the same database, pipeline, and Streamlit steps as above.
 
-This project is for portfolio/demonstration purposes.
+> For environment variables, MySQL configuration, and common error patterns, see `docs/setup.md`.
 
 ---
 
-**Built with ❤️ for showcasing data engineering, ML, and analytics capabilities**
+## Key Outputs and Visuals
+
+- **Power BI fraud analytics dashboard**
+  - Executive-level overview of fraud rates, loss trends, and high-risk segments.
+  - Drill-down into merchants, countries, channels, and time-of-day behavior.
+  
+  ![Power BI Fraud Analytics Dashboard](docs/images/powerbi_overview.png)
+  
+  - **Interactive dashboard**: [View Power BI Report](https://app.powerbi.com/reportEmbed?reportId=31b9f9b4-cda8-4ca2-9412-5cbeb3b3acfb&autoAuth=true&embeddedDemo=true)
+  - **Embed code** (for HTML pages or other markdown renderers):
+    ```html
+    <iframe title="Fraud_Analytics" width="1140" height="541.25" src="https://app.powerbi.com/reportEmbed?reportId=31b9f9b4-cda8-4ca2-9412-5cbeb3b3acfb&autoAuth=true&embeddedDemo=true" frameborder="0" allowFullScreen="true"></iframe>
+    ```
+
+- **Advanced Streamlit investigation console**
+  - Multi-page workflow: transaction overview, risk explanation, analytics, exports.
+  - Designed for daily use by fraud analysts and team leads.
+  
+  > 🧪 **Streamlit Investigation Console**
+  >
+  > <!-- TODO: Add Streamlit screenshot -->
+  > ![Streamlit Investigation App](docs/assets/streamlit_investigation.png)
+  >
+  > _Screenshot should show: filters, risk score, transaction table, and explainable risk features._
+
+- **Basic Streamlit dashboard**
+  - Lightweight visualization mode for quick exploration and storytelling.
+  - **Placeholder**: screenshots highlighting key charts and filters.
+
+> 🎥 **Demo Walkthrough (Optional)**
+>
+> <!-- TODO: Add demo video link -->
+> _A 2–3 minute walkthrough showing Power BI monitoring → Streamlit investigation → insights._
+>
+> Example:
+> - Loom / YouTube link here
+
+All visual assets and future PDFs will live under `docs/assets/` to keep the repository structured and GitHub-friendly.
+
+---
+
+## Results and Insights
+
+- **Velocity-driven risk**: Transactions with unusually high short-window velocity show significantly higher fraud rates → these segments warrant tighter controls and closer review.
+- **Merchant risk concentration**: A small subset of merchants and MCCs contributes a large share of fraud losses (often 60–80% of losses in practice) → risk and monitoring effort should be focused on these concentrations.
+- **Behavioral anomalies at card level**: Strong deviations from a card’s historical spend patterns correlate with elevated fraud risk → behavioral baselines are valuable inputs into decisioning.
+- **Channel and device patterns**: Specific combinations of device type, channel, and IP geography recur in fraud cases → targeted controls can reduce risk without excessive friction for the full portfolio.
+- **Operational impact**: Moving from raw lists to prioritized queues with explanations reduces low-value reviews → analysts can spend more time on the cases with the highest marginal benefit.
+
+> These insights are indicative and based on the synthetic data and risk logic in this project, but mirror real-world patterns observed in payments and card fraud programs.
+
+---
+
+## Documentation Index
+
+Deeper technical and process documentation is organized by area below.
+
+- **Environment and setup**
+  - `docs/setup.md` – environment, database, and app setup; uv vs pip; common issues.
+
+- **Data and pipeline**
+  - `docs/data_pipeline.md` – narrative overview of the data pipeline and design choices.
+  - `sql/README.md` – raw, staging, and feature layers; execution order and logic.
+
+- **Analytics, modeling, and storytelling**
+  - `notebooks/README.md` – role of notebooks, experimentation vs production, storytelling.
+  - `docs/interview_guide.md` – how to present this project in interviews.
+
+- **Applications and BI**
+  - `app/README.md` – Streamlit app, user journeys, and local run instructions.
+  - `powerbi/README.md` – Power BI model, KPIs, slicers, and drill-down patterns.
+
+All documentation is written to be **portfolio-ready** for GitHub and **interview-ready** for discussions with hiring managers, fraud leaders, and senior data professionals.
