@@ -144,84 +144,34 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # IMPORTANT: Setup sidebar FIRST before any main content (ensures sidebar renders)
-df_full = setup_sidebar_filters()
+setup_sidebar_filters()
 
 # App Title at Top
 st.markdown("<h1 style='text-align: center; margin-bottom: 10px;'>Fraud Intelligence & Risk Analytics</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #666; margin-bottom: 30px;'>📊 Transaction Overview</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666; margin-bottom: 10px;'>📊 Transaction Overview</p>", unsafe_allow_html=True)
 
-if df_full.empty:
-    st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first to generate the BI export CSV.")
-    st.stop()
+# Lightweight view mode selector – lets us run a cheaper, aggregate-first view
+view_mode = st.radio(
+    "View mode",
+    options=["🚀 Lite (fast, aggregate)", "🔬 Detailed (full scoring)"],
+    horizontal=True,
+    key="overview_view_mode",
+    help="Lite mode is optimized for Streamlit Community Cloud and large datasets; Detailed mode adds ML scoring detail."
+)
 
-# Get filtered data - load and filter first, score later
+skip_scoring = view_mode.startswith("🚀")
+
 try:
-    # Load and filter data quickly (no scoring yet)
-    from app.shared import _load_cached_data
-    from app.utils import apply_filters
-    
-    df_full = _load_cached_data()
-    
-    if df_full.empty:
-        st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first to generate the BI export CSV.")
-        st.stop()
-    
-    # Apply filters
-    date_start = st.session_state.get("date_start")
-    date_end = st.session_state.get("date_end")
-    merchant_risk_tier = st.session_state.get("merchant_risk_filter", "All")
-    channel = st.session_state.get("channel_filter", "All")
-    country = st.session_state.get("country_filter", "All")
-    fraud_filter = st.session_state.get("fraud_filter", "All")
-    
-    df_filtered = apply_filters(
-        df_full,
-        date_start=date_start,
-        date_end=date_end,
-        merchant_risk_tier=merchant_risk_tier,
-        channel=channel,
-        country=country,
-        fraud_filter=fraud_filter
-    )
-    
-    # Add placeholder risk scores so table can display immediately
-    if 'risk_score' not in df_filtered.columns:
-        df_filtered['risk_score'] = 0.5
-    if 'risk_band' not in df_filtered.columns:
-        df_filtered['risk_band'] = 'MEDIUM'
-    
-    # Score only first 5k rows in background (for performance)
-    # Don't block UI - show table immediately, score in background
-    if not df_filtered.empty and len(df_filtered) > 0:
-        try:
-            from app.risk_scoring import score_transactions, _load_models
-            
-            # Check if models exist
-            feature_columns = [
-                "txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d",
-                "is_high_risk_merchant", "is_emulator_device"
-            ]
-            available_features = [col for col in feature_columns if col in df_filtered.columns]
-            models_exist = _load_models(available_features) is not None
-            
-            # Limit scoring to 3000 rows max for free tier
-            max_to_score = min(3000, len(df_filtered))
-            df_to_score = df_filtered.head(max_to_score).copy()
-            
-            # Score without blocking the UI
-            df_scored = score_transactions(df_to_score)
-            
-            # Update scored rows
-            if not df_scored.empty and 'risk_score' in df_scored.columns and 'risk_band' in df_scored.columns:
-                df_filtered.loc[:max_to_score-1, 'risk_score'] = df_scored['risk_score'].values
-                df_filtered.loc[:max_to_score-1, 'risk_band'] = df_scored['risk_band'].values
-        except Exception as e:
-            # Silent fail - keep placeholder scores, don't block UI
-            pass
-                
+    # Cloud-friendly: compute stats via Polars, load only a limited filtered sample
+    # In Lite mode we skip ML scoring to save memory/CPU on large datasets
+    dataset_stats, filtered_summary, df_filtered = get_filtered_data(skip_scoring=skip_scoring)
 except Exception as e:
     st.error(f"❌ Error loading data: {str(e)}")
     st.exception(e)
+    st.stop()
+
+if dataset_stats.get("total_rows", 0) == 0:
+    st.error("⚠️ No transaction data found. Please run `src/export_bi_data.py` first to generate the BI export CSV.")
     st.stop()
 
 # Get max rows limit from session state (set in filters section)
@@ -230,10 +180,8 @@ table_data_limit = st.session_state.get("table_data_limit", len(df_filtered) if 
 
 # Display filter summary in sidebar
 st.sidebar.markdown("---")
-st.sidebar.metric("Filtered Transactions", f"{len(df_filtered):,}")
-if not df_filtered.empty and "is_fraud" in df_filtered.columns:
-    fraud_count = df_filtered["is_fraud"].sum()
-    st.sidebar.metric("Fraud Transactions", f"{fraud_count:,}")
+st.sidebar.metric("Filtered Transactions", f"{int(filtered_summary.get('filtered_rows', 0) or 0):,}")
+st.sidebar.metric("Fraud Transactions", f"{int(filtered_summary.get('fraud_rows', 0) or 0):,}")
 
 # Main content
 if df_filtered.empty:
@@ -248,35 +196,35 @@ else:
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total Dataset", f"{len(df_full):,}")
+        st.metric("Total Dataset", f"{int(dataset_stats.get('total_rows', 0) or 0):,}")
     
     with col2:
-        st.metric("Filtered Transactions", f"{len(df_filtered):,}")
+        st.metric("Filtered Transactions", f"{int(filtered_summary.get('filtered_rows', 0) or 0):,}")
     
     with col3:
-        if 'is_fraud' in df_filtered.columns:
-            fraud_count = df_filtered['is_fraud'].sum()
-            fraud_pct = (fraud_count / len(df_filtered) * 100) if len(df_filtered) > 0 else 0
-            st.metric("Fraud Rate", f"{fraud_pct:.2f}%")
-        else:
-            st.metric("Fraud Rate", "N/A")
+        filtered_rows = int(filtered_summary.get("filtered_rows", 0) or 0)
+        fraud_rows = int(filtered_summary.get("fraud_rows", 0) or 0)
+        fraud_pct = (fraud_rows / filtered_rows * 100) if filtered_rows > 0 else 0
+        st.metric("Fraud Rate", f"{fraud_pct:.2f}%")
     
     with col4:
-        if 'txn_date' in df_filtered.columns and not df_filtered['txn_date'].isna().all():
-            date_range = f"{df_filtered['txn_date'].min().date()} to {df_filtered['txn_date'].max().date()}"
+        dmin = filtered_summary.get("date_min")
+        dmax = filtered_summary.get("date_max")
+        if dmin is not None and dmax is not None:
+            date_range = f"{pd.to_datetime(dmin).date()} to {pd.to_datetime(dmax).date()}"
             st.metric("Date Range", date_range[:20] + "..." if len(date_range) > 20 else date_range)
         else:
             st.metric("Date Range", "N/A")
     
-    # Additional stats in expandable section
-    with st.expander("📈 Detailed Dataset Statistics", expanded=False):
+    # Additional stats in expandable section + Plotly-style aggregate visuals
+    with st.expander("📈 Detailed Dataset Statistics & Aggregates", expanded=False):
         stats_col1, stats_col2 = st.columns(2)
         
         with stats_col1:
             st.markdown("**Dataset Information**")
             stats_data = []
-            stats_data.append({"Metric": "Total Rows (Full Dataset)", "Value": f"{len(df_full):,}"})
-            stats_data.append({"Metric": "Filtered Rows", "Value": f"{len(df_filtered):,}"})
+            stats_data.append({"Metric": "Total Rows (Full Dataset)", "Value": f"{int(dataset_stats.get('total_rows', 0) or 0):,}"})
+            stats_data.append({"Metric": "Filtered Rows", "Value": f"{int(filtered_summary.get('filtered_rows', 0) or 0):,}"})
             stats_data.append({"Metric": "Total Columns", "Value": f"{len(df_filtered.columns)}"})
             
             if 'amount' in df_filtered.columns:
@@ -284,36 +232,77 @@ else:
                 stats_data.append({"Metric": "Total Transaction Amount", "Value": format_currency(df_filtered['amount'].sum())})
             
             if 'txn_date' in df_filtered.columns and not df_filtered['txn_date'].isna().all():
-                stats_data.append({"Metric": "Date Range", "Value": f"{df_filtered['txn_date'].min().date()} to {df_filtered['txn_date'].max().date()}"})
+                stats_data.append({"Metric": "Date Range (sample)", "Value": f"{df_filtered['txn_date'].min().date()} to {df_filtered['txn_date'].max().date()}"})
             
             stats_df = pd.DataFrame(stats_data)
             st.dataframe(stats_df, width='stretch', hide_index=True)
         
         with stats_col2:
-            st.markdown("**Fraud Statistics**")
-            if 'is_fraud' in df_filtered.columns:
-                fraud_stats = []
-                fraud_count = df_filtered['is_fraud'].sum()
-                non_fraud_count = (df_filtered['is_fraud'] == False).sum()
-                fraud_pct = (fraud_count / len(df_filtered) * 100) if len(df_filtered) > 0 else 0
-                
-                fraud_stats.append({"Metric": "Fraud Transactions", "Value": f"{fraud_count:,}"})
-                fraud_stats.append({"Metric": "Non-Fraud Transactions", "Value": f"{non_fraud_count:,}"})
-                fraud_stats.append({"Metric": "Fraud Rate", "Value": f"{fraud_pct:.2f}%"})
-                
-                if 'merchant_risk_tier' in df_filtered.columns:
-                    fraud_stats.append({"Metric": "Merchant Risk Tiers", "Value": f"{df_filtered['merchant_risk_tier'].nunique()}"})
-                
-                if 'channel_std' in df_filtered.columns:
-                    fraud_stats.append({"Metric": "Channels", "Value": f"{df_filtered['channel_std'].nunique()}"})
-                
-                if 'country_std' in df_filtered.columns:
-                    fraud_stats.append({"Metric": "Countries", "Value": f"{df_filtered['country_std'].nunique()}"})
-                
-                fraud_stats_df = pd.DataFrame(fraud_stats)
-                st.dataframe(fraud_stats_df, width='stretch', hide_index=True)
-            else:
-                st.info("Fraud information not available")
+            st.markdown("**Fraud Statistics (Aggregated)**")
+            fraud_stats = []
+            filtered_rows = int(filtered_summary.get("filtered_rows", 0) or 0)
+            fraud_count = int(filtered_summary.get("fraud_rows", 0) or 0)
+            non_fraud_count = max(filtered_rows - fraud_count, 0)
+            fraud_pct = (fraud_count / filtered_rows * 100) if filtered_rows > 0 else 0
+            
+            fraud_stats.append({"Metric": "Fraud Transactions", "Value": f"{fraud_count:,}"})
+            fraud_stats.append({"Metric": "Non-Fraud Transactions", "Value": f"{non_fraud_count:,}"})
+            fraud_stats.append({"Metric": "Fraud Rate", "Value": f"{fraud_pct:.2f}%"})
+            
+            if 'merchant_risk_tier' in df_filtered.columns:
+                fraud_stats.append({"Metric": "Merchant Risk Tiers (sample)", "Value": f"{df_filtered['merchant_risk_tier'].nunique()}"})
+            
+            if 'channel_std' in df_filtered.columns:
+                fraud_stats.append({"Metric": "Channels (sample)", "Value": f"{df_filtered['channel_std'].nunique()}"})
+            
+            if 'country_std' in df_filtered.columns:
+                fraud_stats.append({"Metric": "Countries (sample)", "Value": f"{df_filtered['country_std'].nunique()}"})
+            
+            fraud_stats_df = pd.DataFrame(fraud_stats)
+            st.dataframe(fraud_stats_df, width='stretch', hide_index=True)
+        
+        # Optional: lightweight Plotly-style breakdowns using the sampled df
+        try:
+            import plotly.express as px
+            
+            plot_col1, plot_col2 = st.columns(2)
+            with plot_col1:
+                if 'merchant_risk_tier' in df_filtered.columns and 'is_fraud' in df_filtered.columns:
+                    tmp = (
+                        df_filtered
+                        .groupby(['merchant_risk_tier', 'is_fraud'])
+                        .size()
+                        .reset_index(name='count')
+                    )
+                    fig = px.bar(
+                        tmp,
+                        x="merchant_risk_tier",
+                        y="count",
+                        color="is_fraud",
+                        barmode="group",
+                        title="Fraud vs Non-Fraud by Merchant Risk Tier (sample)",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            with plot_col2:
+                if 'channel_std' in df_filtered.columns and 'is_fraud' in df_filtered.columns:
+                    tmp = (
+                        df_filtered
+                        .groupby(['channel_std', 'is_fraud'])
+                        .size()
+                        .reset_index(name='count')
+                    )
+                    fig = px.bar(
+                        tmp,
+                        x="channel_std",
+                        y="count",
+                        color="is_fraud",
+                        barmode="group",
+                        title="Fraud vs Non-Fraud by Channel (sample)",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            # If Plotly isn't available, silently skip interactive charts
+            pass
     
     st.markdown("---")
     st.subheader("📋 Transaction Overview")
@@ -350,17 +339,8 @@ else:
     else:
         df_display = df_filtered.copy()
     
-    # Apply data chunk limit FIRST (before formatting to reduce processing)
-    total_rows = len(df_filtered)
-    if total_rows > table_data_limit:
-        # Random sample to reduce load
-        df_display = df_filtered.sample(n=min(table_data_limit, total_rows), random_state=42).copy()
-        df_display = df_display.sort_values("risk_score", ascending=False, na_position="last") if 'risk_score' in df_display.columns else df_display.sort_index()
-        st.info(f"📊 Showing {len(df_display):,} randomly sampled rows (out of {total_rows:,} filtered transactions). Adjust 'Max rows to display' in filters section to change.")
-    else:
-        df_display = df_filtered.copy()
-        if total_rows > 0:
-            st.success(f"✅ Showing all {total_rows:,} filtered transactions.")
+    # NOTE: df_filtered is already a limited sample (hard-capped) for cloud safety.
+    df_display = df_filtered.copy()
     
     # Select columns for display
     display_columns = [
