@@ -11,119 +11,146 @@ if str(project_root) not in sys.path:
 import pandas as pd
 import streamlit as st
 
-from app.data_loader import get_filter_options, load_transaction_data
-from app.risk_scoring import score_transactions, _load_models
+from app.data_loader import (
+    DEFAULT_BI_CSV,
+    compute_filtered_summary,
+    get_dataset_stats,
+    get_filter_options as get_filter_options_polars,
+    load_transactions_filtered,
+)
 from app.utils import apply_filters
 
 
-@st.cache_data(show_spinner=False, ttl=600, max_entries=1)
-def _load_cached_data():
-    """
-    Cache data loading optimized for Streamlit Cloud.
-    - TTL: 600 seconds (10 minutes) - shorter for free tier memory management
-    - max_entries: 1 - only keep one cached version to save memory
-    """
-    try:
-        return load_transaction_data()
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return pd.DataFrame()
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=2)
+def _dataset_stats_cached(csv_path: str = DEFAULT_BI_CSV) -> dict:
+    """Small cached dict (safe for memory)."""
+    return get_dataset_stats(csv_path)
 
 
-@st.cache_data(show_spinner=False, ttl=600, max_entries=1)
-def _get_filter_options_cached(df_hash):
-    """
-    Cache filter options calculation.
-    - TTL: 600 seconds (10 minutes)
-    - max_entries: 1 - only keep one cached version
-    """
-    df_full = _load_cached_data()
-    if df_full.empty:
-        return {
-            "merchant_risk_tiers": [],
-            "channels": [],
-            "countries": []
-        }
-    return get_filter_options(df_full)
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=2)
+def _filter_options_cached(csv_path: str = DEFAULT_BI_CSV) -> dict:
+    """Small cached dict of distinct filter values (safe for memory)."""
+    return get_filter_options_polars(csv_path)
 
 
-def get_filtered_data(skip_scoring=False):
-    """Load data and apply filters from session state.
-    
-    Args:
-        skip_scoring: If True, skip risk scoring for faster loading
+@st.cache_data(show_spinner=False, ttl=300, max_entries=20)
+def _filtered_summary_cached(
+    date_start,
+    date_end,
+    merchant_risk_tier: str,
+    channel: str,
+    country: str,
+    fraud_filter: str,
+    csv_path: str = DEFAULT_BI_CSV,
+) -> dict:
+    return compute_filtered_summary(
+        date_start=date_start,
+        date_end=date_end,
+        merchant_risk_tier=merchant_risk_tier,
+        channel=channel,
+        country=country,
+        fraud_filter=fraud_filter,
+        csv_path=csv_path,
+    )
+
+
+@st.cache_data(show_spinner=False, ttl=300, max_entries=20)
+def _filtered_rows_cached(
+    date_start,
+    date_end,
+    merchant_risk_tier: str,
+    channel: str,
+    country: str,
+    fraud_filter: str,
+    limit_rows: int,
+    csv_path: str = DEFAULT_BI_CSV,
+) -> pd.DataFrame:
+    return load_transactions_filtered(
+        date_start=date_start,
+        date_end=date_end,
+        merchant_risk_tier=merchant_risk_tier,
+        channel=channel,
+        country=country,
+        fraud_filter=fraud_filter,
+        limit_rows=limit_rows,
+        csv_path=csv_path,
+    )
+
+
+def get_filtered_data(skip_scoring: bool = False):
+    """
+    Streamlit-Cloud-friendly data access:
+    - compute counts/stats via Polars (no full CSV in RAM)
+    - load ONLY a limited filtered sample for the UI table
+
     Returns:
-        Tuple of (df_full, df_filtered)
+        (dataset_stats, filtered_summary, df_rows)
     """
-    df_full = _load_cached_data()
-    
-    if df_full.empty:
-        return df_full, df_full
-    
-    if "date_start" not in st.session_state:
-        if "txn_date" in df_full.columns:
-            date_min = df_full["txn_date"].min()
-            date_max = df_full["txn_date"].max()
-            st.session_state["date_start"] = pd.Timestamp(date_min)
-            st.session_state["date_end"] = pd.Timestamp(date_max)
-        else:
-            st.session_state["date_start"] = None
-            st.session_state["date_end"] = None
-    
+    dataset_stats = _dataset_stats_cached()
+
     date_start = st.session_state.get("date_start")
     date_end = st.session_state.get("date_end")
     merchant_risk_tier = st.session_state.get("merchant_risk_filter", "All")
     channel = st.session_state.get("channel_filter", "All")
     country = st.session_state.get("country_filter", "All")
     fraud_filter = st.session_state.get("fraud_filter", "All")
-    
-    # Apply filters
-    df_filtered = apply_filters(
-        df_full,
-        date_start=date_start,
-        date_end=date_end,
-        merchant_risk_tier=merchant_risk_tier,
-        channel=channel,
-        country=country,
-        fraud_filter=fraud_filter
+    limit_rows = int(st.session_state.get("table_data_limit", 5000) or 5000)
+
+    filtered_summary = _filtered_summary_cached(
+        date_start,
+        date_end,
+        merchant_risk_tier,
+        channel,
+        country,
+        fraud_filter,
     )
-    
-    if not df_filtered.empty and not skip_scoring:
-        feature_columns = [
-            "txns_last_24h", "declined_txns_last_24h", "merchant_fraud_rate_30d",
-            "is_high_risk_merchant", "is_emulator_device"
-        ]
-        available_features = [col for col in feature_columns if col in df_full.columns]
-        
-        # Limit scoring to prevent resource exhaustion on free tier
-        max_initial_score = 3000
-        try:
-            if len(df_filtered) > max_initial_score:
-                df_to_score = df_filtered.head(max_initial_score).copy()
-                df_scored = score_transactions(df_to_score)
-                df_remaining = df_filtered.iloc[max_initial_score:].copy()
-                df_remaining['risk_score'] = 0.5
-                df_remaining['risk_band'] = 'MEDIUM'
-                df_filtered = pd.concat([df_scored, df_remaining], ignore_index=True)
-            else:
-                df_filtered = score_transactions(df_filtered)
-        except Exception:
-            if 'risk_score' not in df_filtered.columns:
-                df_filtered['risk_score'] = 0.5
-            if 'risk_band' not in df_filtered.columns:
-                df_filtered['risk_band'] = 'MEDIUM'
-    elif skip_scoring:
-        # Add placeholder scores if skipping scoring (for pages that don't need real scores)
-        if 'risk_score' not in df_filtered.columns:
-            df_filtered['risk_score'] = 0.5
-        if 'risk_band' not in df_filtered.columns:
-            df_filtered['risk_band'] = 'MEDIUM'
-    # If df_filtered is empty, add placeholder columns
-    elif df_filtered.empty:
-        df_filtered['risk_score'] = 0.5
-        df_filtered['risk_band'] = 'MEDIUM'
-    
-    return df_full, df_filtered
+    df_rows = _filtered_rows_cached(
+        date_start,
+        date_end,
+        merchant_risk_tier,
+        channel,
+        country,
+        fraud_filter,
+        limit_rows,
+    )
+
+    # Risk scoring: only score small subset, keep placeholders otherwise
+    if df_rows.empty:
+        return dataset_stats, filtered_summary, df_rows
+
+    if skip_scoring:
+        if "risk_score" not in df_rows.columns:
+            df_rows["risk_score"] = 0.5
+        if "risk_band" not in df_rows.columns:
+            df_rows["risk_band"] = "MEDIUM"
+        return dataset_stats, filtered_summary, df_rows
+
+    try:
+        from app.risk_scoring import score_transactions  # local import (avoid heavy imports on app start)
+
+        # Score only a small subset for Cloud safety; switch to fast rule-based
+        # mode when the filtered dataset is very large.
+        max_initial_score = 2000
+        df_to_score = df_rows.head(min(max_initial_score, len(df_rows))).copy()
+        total_filtered = int(filtered_summary.get("filtered_rows", len(df_rows)) or len(df_rows))
+        use_fast_mode = total_filtered > 200_000
+
+        df_scored = score_transactions(df_to_score, fast_mode=use_fast_mode)
+
+        if len(df_rows) > max_initial_score:
+            df_remaining = df_rows.iloc[max_initial_score:].copy()
+            df_remaining["risk_score"] = 0.5
+            df_remaining["risk_band"] = "MEDIUM"
+            df_rows = pd.concat([df_scored, df_remaining], ignore_index=True)
+        else:
+            df_rows = df_scored
+    except Exception:
+        if "risk_score" not in df_rows.columns:
+            df_rows["risk_score"] = 0.5
+        if "risk_band" not in df_rows.columns:
+            df_rows["risk_band"] = "MEDIUM"
+
+    return dataset_stats, filtered_summary, df_rows
 
 
 def setup_sidebar_filters():
@@ -131,7 +158,8 @@ def setup_sidebar_filters():
     # ALWAYS show sidebar - check unified_app but don't require it
     unified_app = st.session_state.get('unified_app', False)
     
-    df_full = _load_cached_data()
+    dataset_stats = _dataset_stats_cached()
+    filter_options = _filter_options_cached()
     
     # Top section: Mode Switch | Navigation (side by side, both in expanders)
     if unified_app:
@@ -188,7 +216,7 @@ def setup_sidebar_filters():
                     target_page = advanced_pages[selected_page]
                     st.switch_page(target_page)
     
-    if df_full.empty:
+    if dataset_stats.get("total_rows", 0) == 0:
         st.sidebar.warning("⚠️ No data available")
         st.sidebar.info("💡 Run `src/export_bi_data.py` to generate transaction data.")
         if unified_app:
@@ -257,16 +285,19 @@ def setup_sidebar_filters():
                     <p style="margin-top: 5px; font-size: 0.75em;">Email</p>
                 </div>
                 """, unsafe_allow_html=True)
-        return df_full
+        return
     
     # Filters section - ALWAYS OPEN (no expander)
     st.sidebar.markdown("---")
     st.sidebar.header("🔧 Filters")
     
     # Date range filter
-    if "txn_date" in df_full.columns:
-        date_min = df_full["txn_date"].min()
-        date_max = df_full["txn_date"].max()
+    date_min = dataset_stats.get("date_min")
+    date_max = dataset_stats.get("date_max")
+    if date_min is not None and date_max is not None:
+        # Polars returns python datetime/date objects; normalize for Streamlit widget
+        date_min = pd.to_datetime(date_min, errors="coerce").date()
+        date_max = pd.to_datetime(date_max, errors="coerce").date()
         
         date_range = st.sidebar.date_input(
             "Date Range",
@@ -281,9 +312,6 @@ def setup_sidebar_filters():
     else:
         date_start = None
         date_end = None
-    
-    # Get filter options (use cached version)
-    filter_options = _get_filter_options_cached(hash(tuple(df_full.columns)))
     
     # Merchant risk tier filter
     merchant_risk_tier = st.sidebar.selectbox(
@@ -319,31 +347,30 @@ def setup_sidebar_filters():
     st.session_state["date_end"] = date_end
     # Selectbox values are automatically stored in session state with their keys
     
-    # Apply filters to get filtered count for max rows selector
-    df_filtered_temp = apply_filters(
-        df_full,
-        date_start=date_start,
-        date_end=date_end,
-        merchant_risk_tier=merchant_risk_tier,
-        channel=channel,
-        country=country,
-        fraud_filter=fraud_filter
+    # Compute filtered count without loading dataset into RAM
+    filtered_summary = _filtered_summary_cached(
+        date_start,
+        date_end,
+        merchant_risk_tier,
+        channel,
+        country,
+        fraud_filter,
     )
-    filtered_count = len(df_filtered_temp)
+    filtered_count = int(filtered_summary.get("filtered_rows", 0) or 0)
     
     # Max rows selector - in filters section, auto-selects filtered count
     st.sidebar.markdown("---")
     st.sidebar.subheader("📊 Max Rows to Display")
     
     # Standard chunk options
+    # Streamlit Community Cloud protection: keep UI reads bounded
     chunk_options = {
+        "1K": 1000,
+        "3K": 3000,
         "5K": 5000,
         "10K": 10000,
         "25K": 25000,
-        "50K": 50000,
-        "100K": 100000,
-        "250K": 250000,
-        "400K": 400000
+        "50K (cap)": 50000,
     }
     
     # Build available options - only include options <= filtered_count
@@ -489,5 +516,5 @@ def setup_sidebar_filters():
             </div>
             """, unsafe_allow_html=True)
     
-    return df_full
+    return
 

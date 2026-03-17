@@ -152,7 +152,8 @@ if "txn_id_clean" in df_filtered.columns:
                 # Always score this transaction to ensure we have accurate risk score and models loaded
                 with st.spinner("🔄 Calculating risk score and loading models..."):
                     single_df = pd.DataFrame([selected_row])
-                    scored_df = score_transactions(single_df)
+                    # Always use full ML scoring here so SHAP/explanations stay meaningful
+                    scored_df = score_transactions(single_df, fast_mode=False)
                     if not scored_df.empty:
                         selected_row = scored_df.iloc[0]
                 

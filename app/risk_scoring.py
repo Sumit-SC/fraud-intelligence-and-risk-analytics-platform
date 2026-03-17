@@ -9,7 +9,6 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-import shap
 import streamlit as st
 
 # Initialize SHAP explainer (will be set after model training)
@@ -82,6 +81,9 @@ def explain_risk_score(row: pd.Series) -> list[str]:
     
     if _shap_model is not None and _shap_features is not None and _shap_explainer is None:
         try:
+            # IMPORTANT: SHAP is heavy on Streamlit Community Cloud.
+            # Import it lazily ONLY when a user requests explanations.
+            import shap  # type: ignore
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -265,7 +267,7 @@ def _load_models(expected_features):
     return _load_models_cached(tuple(sorted(expected_features)))
 
 
-def score_transactions(df: pd.DataFrame) -> pd.DataFrame:
+def score_transactions(df: pd.DataFrame, fast_mode: bool = False) -> pd.DataFrame:
     """
     ML-lite fraud risk scoring using ensemble models (Logistic Regression + Random Forest).
     
@@ -297,6 +299,15 @@ def score_transactions(df: pd.DataFrame) -> pd.DataFrame:
         df["risk_score"] = 0.0
         df["risk_band"] = "LOW"
         return df
+    
+    # Fast, rule-based mode: never touch sklearn models (Streamlit-safe on large data)
+    if fast_mode:
+        df_scored = df.copy()
+        df_scored["risk_score"] = calculate_risk_score(df_scored) / 100.0
+        df_scored["risk_band"] = df_scored["risk_score"].apply(
+            lambda x: "HIGH" if x >= 0.6 else ("MEDIUM" if x >= 0.3 else "LOW")
+        )
+        return df_scored
     
     # Create a copy to avoid modifying original
     df_scored = df.copy()
